@@ -64,7 +64,7 @@ def play_game(training:bool=False,board_height:int=10,board_width:int=10):
 
         # Get the max value and its index
         bomb_index = torch.argmax(output)  # Flattened index
-
+        bomb_index = bomb_index % board_width*board_height
         action_log[bomb_index] += 1 # Increment the number of times the index has been guessed
         current_board[0,bomb_index] = 2 * (bomb_index in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
         current_board[0,bomb_index] = 1 * (bomb_index not in ship_position_indices)  
@@ -83,9 +83,11 @@ def play_game(training:bool=False,board_height:int=10,board_width:int=10):
         if current_board[0,bomb_index] == 2:
             hit_log[action_index] = 1* (bomb_index in ship_position_indices)
 
-    hit_to_guess_ratio = torch.sum(hit_log == 1)/torch.sum(torch.bincount(action_log))
-    wrong_guess_ratio = torch.sum(current_board == 0)/torch.sum(torch.bincount(action_log))
-    correct_guess_ratio = torch.sum(current_board == 1)/torch.sum(torch.bincount(action_log))
+        
+        hit_to_guess_ratio = torch.sum(hit_log == 1)/torch.sum(torch.bincount(action_log))
+        wrong_guess_ratio = torch.sum(current_board == 0)/torch.sum(torch.bincount(action_log))
+        correct_guess_ratio = torch.sum(current_board == 1)/torch.sum(torch.bincount(action_log))
+        print(f"Action_index: {action_index} Hit to guess ratio: {hit_to_guess_ratio}, Wrong guess ratio: {wrong_guess_ratio}, Correct guess ratio: {correct_guess_ratio}")
     return hit_to_guess_ratio, wrong_guess_ratio, correct_guess_ratio
 
 if __name__ =="__main__":
@@ -97,7 +99,7 @@ if __name__ =="__main__":
     # Instantiate model
     model = Transformer(src_vocab_size=board_height,
                         tgt_vocab_size=board_height, 
-                        d_model=board_width, num_heads=5, num_layers=6, 
+                        d_model=board_width*board_height, num_heads=5, num_layers=6, 
                         d_ff=2048, 
                         max_seq_length=board_height*board_width, dropout=0.1)
     loss_fn = nn.CrossEntropyLoss()
