@@ -3,18 +3,18 @@ import numpy as np
 
 def place_ships(board_height:int=10,board_width:int=10,ship_sizes:List[int]=[2,3,3,4,5]) -> np.ndarray:
     """ Return random ship positions."""
-    board = -1*np.ones(shape=(board_width,board_height), dtype=np.float32)
+    board = np.zeros(shape=(board_width,board_height), dtype=np.float32)
     board_size = board_width * board_height
     def can_place_ship(x, y, length, direction):
         """Check if a ship can be placed at (x, y) in a given direction without overlapping."""
         if direction == "H":  # Horizontal
             if y + length > board_height:
                 return False
-            return all(board[x, y+i] == -1 for i in range(length))
+            return all(board[x, y+i] == 0 for i in range(length))
         else:  # Vertical
             if x + length > board_width:
                 return False
-            return all(board[x+i, y] == -1 for i in range(length))
+            return all(board[x+i, y] == 0 for i in range(length))
 
     def place_ship(x, y, length, direction):
         """Place a ship at (x, y) in a given direction."""

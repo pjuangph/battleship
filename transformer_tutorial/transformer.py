@@ -125,6 +125,7 @@ class DecoderLayer(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_seq_length, dropout):
         super(Transformer, self).__init__()
+
         self.encoder_embedding = nn.Embedding(src_vocab_size, d_model)
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
@@ -135,25 +136,6 @@ class Transformer(nn.Module):
         self.fc = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
-    def encode(self, src):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
-        enc_output = src_embedded
-        for enc_layer in self.encoder_layers:
-            enc_output = enc_layer(enc_output, src_mask)
-        probabilities = nn.functional.softmax(enc_output,dim=-1) # Softmax is applied to obtain probabilities
-        probabilities = probabilities.view(-1, probabilities.size(-1))
-        return probabilities
-
-    def decode(self, tgt, src, enc_output):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
-        tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
-        dec_output = tgt_embedded
-        for dec_layer in self.decoder_layers:
-            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)      
-        return dec_output
-    
     def generate_mask(self, src, tgt):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
         tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
@@ -161,7 +143,6 @@ class Transformer(nn.Module):
         nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
         tgt_mask = tgt_mask & nopeak_mask
         return src_mask, tgt_mask
-
 
     def forward(self, src, tgt):
         src_mask, tgt_mask = self.generate_mask(src, tgt)
