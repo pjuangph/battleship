@@ -135,14 +135,23 @@ class Transformer(nn.Module):
         self.fc = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
-    def encode(self, src):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+    def encode(self, src: torch.Tensor):
+        """Encoder only model
+
+        Args:
+            src (torch.Tensor): Input current map as a Tensor [batch, boardheight*boardwidth]
+
+        Returns:
+            Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
+        """
+        src_mask = (src == 1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
             enc_output = enc_layer(enc_output, src_mask)
-        probabilities = nn.functional.softmax(enc_output,dim=-1) # Softmax is applied to obtain probabilities
-        probabilities = probabilities.view(-1, probabilities.size(-1))
+        output = self.fc(enc_output)
+        output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
+        probabilities = nn.functional.softmax(output,dim=-1) # Softmax is applied to obtain probabilities
         return probabilities
 
     def decode(self, tgt, src, enc_output):

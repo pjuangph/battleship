@@ -99,7 +99,7 @@ if __name__ =="__main__":
     # Instantiate model
     model = Transformer(src_vocab_size=board_height*board_width,
                         tgt_vocab_size=1, 
-                        d_model=board_width*board_height, num_heads=5, num_layers=12, 
+                        d_model=board_width*board_height, num_heads=5, num_layers=8, 
                         d_ff=2048, 
                         max_seq_length=board_height*board_width, dropout=0.05).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
