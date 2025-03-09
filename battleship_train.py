@@ -136,7 +136,7 @@ if __name__ =="__main__":
     data = dict()
     data['model'] = {
         'state_dict': model.state_dict(),
-        'optimizer': optimizer.state_dict,
+        'optimizer': optimizer.state_dict(),
         'src_vocab_size': src_vocab_size,
         'tgt_vocab_size': tgt_vocab_size,
         'd_model': d_model,
