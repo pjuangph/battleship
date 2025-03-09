@@ -96,12 +96,20 @@ if __name__ =="__main__":
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
 
+    src_vocab_size = board_height*board_width
+    tgt_vocab_size = 1
+    d_model = board_width*board_height
+    num_heads = 5
+    num_layers = 2
+    d_ff = 2048
+    max_seq_length = board_height*board_width
+    dropout = 0.05
     # Instantiate model
-    model = Transformer(src_vocab_size=board_height*board_width,
-                        tgt_vocab_size=1, 
-                        d_model=board_width*board_height, num_heads=5, num_layers=8, 
-                        d_ff=2048, 
-                        max_seq_length=board_height*board_width, dropout=0.05).to(device)
+    model = Transformer(src_vocab_size=src_vocab_size,
+                        tgt_vocab_size=tgt_vocab_size, 
+                        d_model=d_model, num_heads=num_heads, num_layers=num_layers, 
+                        d_ff=d_ff, 
+                        max_seq_length=max_seq_length, dropout=dropout).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
     hit_to_guess_tracker = []; wrong_guess_tracker = []; correct_guess_tracker = []
     # Train the model
@@ -126,7 +134,17 @@ if __name__ =="__main__":
     
     # Save the model
     data = dict()
-    data['model'] = model
+    data['model'] = {
+        'state_dict': model.state_dict(),
+        'optimizer': optimizer.state_dict,
+        'src_vocab_size': src_vocab_size,
+        'tgt_vocab_size': tgt_vocab_size,
+        'd_model': d_model,
+        'num_heads': num_heads,
+        'num_layers': num_layers,
+        'd_ff': d_ff,
+    }
+    
     data['hit_to_guess_tracker'] = hit_to_guess_tracker
     data['wrong_guess_tracker'] = wrong_guess_tracker
     data['correct_guess_tracker'] = correct_guess_tracker
