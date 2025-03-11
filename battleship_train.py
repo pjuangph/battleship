@@ -10,6 +10,8 @@ from torch import Tensor
 import numpy as np
 from ship_placements import place_ships
 from transformer import Transformer 
+from dnn import SimpleDNN
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class BattleshipLoss(nn.Module):
@@ -34,10 +36,11 @@ class BattleshipLoss(nn.Module):
         correct_guesses = torch.sum((current_board == 2).float(),dim=1)
         cumsum_correct_guesses = torch.cumsum((current_board==2),dim=0)
         action_index_each_game = torch.argmax((cumsum_correct_guesses == torch.sum(ship_sizes)).float(), dim=-1)+action_index
+        no_guesses = torch.sum((current_board == 0).float(),dim=1)
         wrong_guesses = torch.sum((current_board == 1).float(),dim=1)
         
         # Compute loss with floating point division
-        loss = torch.mean((wrong_guesses + repeated_guesses) / (action_index_each_game + correct_guesses + 1e-6))  # Avoid division by zero
+        loss = torch.mean((wrong_guesses + repeated_guesses) / (no_guesses**2 + repeated_guesses + correct_guesses**2 + 1e-6))  # Avoid division by zero
 
         return loss,action_index_each_game
 
@@ -63,7 +66,7 @@ def play_game(model:nn.Module,optimizer, training:bool=False,board_height:int=10
     loss_fn = BattleshipLoss()
     action_index = 0
     total_guesses = 0
-    while (torch.min(torch.sum(hit_log,dim=1)) < sum(ship_sizes)) and (action_index < board_size) and (total_guesses < 5000):
+    while (torch.min(torch.sum(hit_log,dim=1)) < sum(ship_sizes)) and (action_index < board_size) and (total_guesses < 1000):
         output = model.encode(current_board)
         bomb_index = torch.argmax(output,dim=1)  # Get the bomb index for all the games
     
@@ -73,7 +76,7 @@ def play_game(model:nn.Module,optimizer, training:bool=False,board_height:int=10
             current_board[i,bomb_index[i]] = 2 * (bomb_index[i] in ship_position_indices[i,:]) + 1 * (bomb_index[i] not in ship_position_indices[i,:])  # 0 no bomb, 1 bomb, 2 hit
 
             # Check if the index has already been guessed
-            repeated_guess = action_log[i,bomb_index[i]]
+            repeated_guess = action_log[i,bomb_index[i]].clone()
             repeated_guess = torch.tensor(repeated_guess, dtype=torch.float32, device=device, requires_grad=True)
 
             if repeated_guess==1:
@@ -89,26 +92,34 @@ def play_game(model:nn.Module,optimizer, training:bool=False,board_height:int=10
 
 def train():
     n_games_per_epoch = 1
-    epochs = 1000
+    epochs = 5000
     board_height = 10
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
 
     src_vocab_size = board_height*board_width
     tgt_vocab_size = 1
-    d_model = board_width*board_height
-    num_heads = 10
+    d_model = 100
+    num_heads = 2
     num_layers = 8
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.15
+    dropout = 0.1
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
                         d_model=d_model, num_heads=num_heads, num_layers=num_layers, 
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
+
+    # input_size = 100
+    # hidden = [2048,2048,2048]
+    # output_size = 100
+
+    # model = SimpleDNN(input_size, hidden, output_size)
+
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-2, weight_decay=1e-2)
     hit_to_guess_tracker = []; wrong_guess_tracker = []; correct_guess_tracker = []
     # Train the model
     for epoch in range(epochs):
