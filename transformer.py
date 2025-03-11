@@ -126,6 +126,7 @@ class Transformer(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_seq_length, dropout):
         super(Transformer, self).__init__()
         self.encoder_embedding = nn.Embedding(src_vocab_size, d_model)
+        # nn.init.normal_(self.encoder_embedding.weight, mean=0, std=0.1)
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
@@ -135,6 +136,34 @@ class Transformer(nn.Module):
         self.fc = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
+    def encode(self, src: torch.Tensor):
+        """Encoder only model
+
+        Args:
+            src (torch.Tensor): Input current map as a Tensor [batch, boardheight*boardwidth]
+
+        Returns:
+            Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
+        """
+        src_mask = (src >-1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
+        src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
+        enc_output = src_embedded
+        for enc_layer in self.encoder_layers:
+            enc_output = enc_layer(enc_output, src_mask)
+        output = self.fc(enc_output)
+        output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
+        probabilities = nn.functional.softmax(output,dim=-1) # Softmax is applied to obtain probabilities
+        return probabilities
+
+    def decode(self, tgt, src, enc_output):
+        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+        tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
+        dec_output = tgt_embedded
+        for dec_layer in self.decoder_layers:
+            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)      
+        return dec_output
+    
     def generate_mask(self, src, tgt):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
         tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
@@ -142,6 +171,7 @@ class Transformer(nn.Module):
         nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
         tgt_mask = tgt_mask & nopeak_mask
         return src_mask, tgt_mask
+
 
     def forward(self, src, tgt):
         src_mask, tgt_mask = self.generate_mask(src, tgt)
@@ -157,7 +187,4 @@ class Transformer(nn.Module):
             dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
 
         output = self.fc(dec_output)
-        # Battleship part
-        probabilities = nn.softmax(output, dim=-1) # Softmax is applied to obtain probabilities
-        
-        return probabilities
+        return output
