@@ -1,5 +1,6 @@
 from typing import List
 import numpy as np 
+import numpy.typing as npt
 
 def place_ships(board_height:int=10,board_width:int=10,ship_sizes:List[int]=[2,3,3,4,5]) -> np.ndarray:
     """ Return random ship positions."""
@@ -34,3 +35,12 @@ def place_ships(board_height:int=10,board_width:int=10,ship_sizes:List[int]=[2,3
                 place_ship(x, y, ship_size, direction)
                 placed = True    
     return np.reshape(board, (1, board_size)) 
+
+def print_board(board:npt.NDArray):
+    """Print the board."""
+    print("   " + " | ".join(str(i) for i in range(board.shape[1])))  # Column numbers
+    print("  " + "----" * board.shape[1])  # Top border
+    for i, row in enumerate(board):
+        print(f"{i} |" + " | ".join(list(map(str,map(int, row)))) + " |") # Row numbers + grid
+    
+

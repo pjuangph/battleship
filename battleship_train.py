@@ -48,50 +48,48 @@ def play_game(model:nn.Module,optimizer, training:bool=False,board_height:int=10
         model.train()
     else:
         model.eval()
-    ship_position_indices = np.zeros(shape=(n_games,sum(ship_sizes)), dtype=np.int64)
+    ship_position_indices = np.zeros(shape=(n_games,sum(ship_sizes)), dtype=np.int8)
     for i in range(n_games):    
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices[i,:] = np.where(ship_positions == 1)[1]
+    ship_position_indices = torch.from_numpy(ship_position_indices).type(torch.int32).to(device)
     board_size = board_height * board_width
 
-    board_position_log = []
-    action_log = torch.zeros((n_games,board_size), dtype=torch.int32)
-    hit_log = torch.zeros((n_games,board_size), dtype=torch.int32)
+    action_log = torch.zeros((n_games,board_size), dtype=torch.int32,device=device)
+    hit_log = torch.zeros((n_games,board_size), dtype=torch.int32,device=device)
 
-    current_board = torch.from_numpy(0*np.ones(shape=(n_games,board_size), dtype=np.int64)).type(torch.int32)  # 0 no bomb, 1 bomb, 2 hit
+    current_board = torch.from_numpy(np.zeros(shape=(n_games,board_size), dtype=np.int8)).type(torch.int32).to(device)  # 0 no bomb, 1 bomb, 2 hit
     ship_sizes = torch.tensor(ship_sizes, dtype=torch.float32, device=device, requires_grad=True)
     loss_fn = BattleshipLoss()
     action_index = 0
-    
-    while (torch.min(torch.sum(hit_log,dim=1)) < sum(ship_sizes)) and (action_index < board_size):
-        optimizer.zero_grad()
+    total_guesses = 0
+    while (torch.min(torch.sum(hit_log,dim=1)) < sum(ship_sizes)) and (action_index < board_size) and (total_guesses < 5000):
         output = model.encode(current_board)
         bomb_index = torch.argmax(output,dim=1)  # Get the bomb index for all the games
-        
-        action_index += 1
-        
+    
         for i in range(n_games):
             action_log[i,bomb_index[i]] += 1 # Increment the number of times the index has been guessed
             # Set the board values for each game
             current_board[i,bomb_index[i]] = 2 * (bomb_index[i] in ship_position_indices[i,:]) + 1 * (bomb_index[i] not in ship_position_indices[i,:])  # 0 no bomb, 1 bomb, 2 hit
 
             # Check if the index has already been guessed
-            repeated_guesses = torch.sum(action_log[i,:] == action_log[i,bomb_index[i]])-1
-            repeated_guesses = torch.tensor(repeated_guesses, dtype=torch.float32, device=device, requires_grad=True)
+            repeated_guess = action_log[i,bomb_index[i]]
+            repeated_guess = torch.tensor(repeated_guess, dtype=torch.float32, device=device, requires_grad=True)
 
-            hit_log[i,action_index-1] = (current_board[i,bomb_index[i]] == 2) * 1* (bomb_index[i] in ship_position_indices[i,:])
-
-        loss,action_index_for_each_game = loss_fn(current_board,repeated_guesses,action_index,ship_sizes)
+            if repeated_guess==1:
+                optimizer.zero_grad()
+                hit_log[i,action_index] = 1*(repeated_guess <= 1) * (current_board[i,bomb_index[i]] == 2)
+                action_index += 1
+            total_guesses += 1
+        loss,action_index_for_each_game = loss_fn(current_board,repeated_guess,action_index,ship_sizes)
         loss.backward()
         optimizer.step()
 
-        board_position_log.append(current_board.numpy().copy())
-
     return hit_log, action_log, current_board, action_index_for_each_game
 
-if __name__ =="__main__":
+def train():
     n_games_per_epoch = 1
-    epochs = 10000
+    epochs = 1000
     board_height = 10
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
@@ -99,11 +97,11 @@ if __name__ =="__main__":
     src_vocab_size = board_height*board_width
     tgt_vocab_size = 1
     d_model = board_width*board_height
-    num_heads = 5
-    num_layers = 2
+    num_heads = 10
+    num_layers = 8
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.05
+    dropout = 0.15
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
@@ -123,6 +121,7 @@ if __name__ =="__main__":
         print(f"Epoch: {epoch:d} Hit to guess ratio: {hit_to_guess_ratio:0.3e}, Wrong guess ratio: {wrong_guess_ratio:0.3e}, Correct guess ratio: {correct_guess_ratio:0.3e}")
 
         # Print Games Statistics, total guesses to find all ships, hit to guess ratio, wrong guess ratio, correct guess ratio
+        print(f"Epoch: {epoch:d} Total Hits: {torch.sum(hit_log):d}")
         print(f"Epoch: {epoch:d} Average guesses to find all ships: {torch.mean(action_index_for_each_game):0.2f}")
         print(f"Epoch: {epoch:d} Min guess to find all ships: {torch.min(action_index_for_each_game):0.2f}")
         print(f"Epoch: {epoch:d} Max guess to find all ships: {torch.max(action_index_for_each_game):0.2f}")
@@ -143,11 +142,14 @@ if __name__ =="__main__":
         'num_heads': num_heads,
         'num_layers': num_layers,
         'd_ff': d_ff,
+        'max_seq_length': max_seq_length,
+        'dropout': dropout
     }
     
     data['hit_to_guess_tracker'] = hit_to_guess_tracker
     data['wrong_guess_tracker'] = wrong_guess_tracker
     data['correct_guess_tracker'] = correct_guess_tracker
     torch.save(data, "battleship_data.pth")
-    
-    
+
+if __name__ =="__main__":
+    train()

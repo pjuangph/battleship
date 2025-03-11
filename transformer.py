@@ -126,6 +126,7 @@ class Transformer(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_seq_length, dropout):
         super(Transformer, self).__init__()
         self.encoder_embedding = nn.Embedding(src_vocab_size, d_model)
+        # nn.init.normal_(self.encoder_embedding.weight, mean=0, std=0.1)
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
@@ -144,7 +145,7 @@ class Transformer(nn.Module):
         Returns:
             Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
         """
-        src_mask = (src == 1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
+        src_mask = (src >-1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
