@@ -145,14 +145,17 @@ class Transformer(nn.Module):
         Returns:
             Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
         """
-        src_mask = (src >-1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
+        # src_mask = (src == 1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
-            enc_output = enc_layer(enc_output, src_mask)
+            # enc_output = enc_layer(enc_output, src_mask)
+            enc_output = enc_layer(enc_output, None)
         output = self.fc(enc_output)
         output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
+        mask = (src != 1) & (src != 2) # Mask out previous guesses
         probabilities = nn.functional.softmax(output,dim=-1) # Softmax is applied to obtain probabilities
+        probabilities = probabilities*mask
         return probabilities
 
     def decode(self, tgt, src, enc_output):
