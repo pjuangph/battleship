@@ -8,6 +8,7 @@ import torch.optim as optim
 import torch
 from torch import Tensor
 import numpy as np
+import numpy.typing as npt
 from ship_placements import place_ships
 from transformer import Transformer 
 from dnn import SimpleDNN
@@ -39,67 +40,60 @@ class BattleshipLoss(nn.Module):
         misses.requires_grad = True
         correct_guesses.requires_grad = True
         # Compute loss with floating point division
-        loss = torch.mean((misses) / (no_guesses + correct_guesses + 1e-6))  # Avoid division by zero
+        loss = torch.mean((misses) / (correct_guesses**2 + 1e-6))  # Avoid division by zero
 
         return loss,action_index_each_game
 
 # Define loss and optimizer
-def play_game(model:nn.Module,optimizer, training:bool=False,board_height:int=10,board_width:int=10,n_games:int=64,ship_sizes:List[int]=[2,3,3,4,5]) -> Tuple[Tensor,Tensor,Tensor]:
+def play_game(model:nn.Module,optimizer, target:Tensor,training:bool=False,board_height:int=10,board_width:int=10,ship_sizes:List[int]=[]) -> Tuple[Tensor,Tensor,Tensor]:
     """ Play game of battleship using network."""
     if training:
         model.train()
     else:
         model.eval()
-    ship_position_indices = np.zeros(shape=(n_games,sum(ship_sizes)), dtype=np.int8)
-    for i in range(n_games):    
-        ship_positions = place_ships(board_height,board_width,ship_sizes)
-        ship_position_indices[i,:] = np.where(ship_positions == 1)[1]
-    ship_position_indices = torch.from_numpy(ship_position_indices).type(torch.int32).to(device)
+   
     board_size = board_height * board_width
-
-    action_log = torch.zeros((n_games,board_size), dtype=torch.int32,device=device)
-    hit_log = torch.zeros((n_games,board_size), dtype=torch.int32,device=device)
-
-    current_board = torch.from_numpy(np.zeros(shape=(n_games,board_size), dtype=np.int32)).type(torch.int32).to(device)  # 0 no bomb, 1 bomb, 2 hit
-    ship_sizes = torch.tensor(ship_sizes, dtype=torch.float32, device=device, requires_grad=True)
-    loss_fn = BattleshipLoss()
-    action_index = 0
-    total_guesses = 0
-    while (torch.min(torch.sum(hit_log,dim=1)) < sum(ship_sizes)) and (action_index < board_size) and (total_guesses < 100):
-        output = model.encode(current_board)
-        bomb_index = torch.argmax(output,dim=1)  # Get the bomb index for all the games
     
-        for i in range(n_games):
-            action_log[i,bomb_index[i]] += 1 # Increment the number of times the index has been guessed
-            if int(action_log[i,bomb_index[i]])>1:
-                print("check")
-            # Set the board values for each game
-            current_board[i,bomb_index[i]] = 2 * (bomb_index[i] in ship_position_indices[i,:]) + 1 * (bomb_index[i] not in ship_position_indices[i,:])  # 0 no bomb, 1 bomb, 2 hit
-            optimizer.zero_grad()
-            hit_log[i,action_index] = (current_board[i,bomb_index[i]] == 2)
-            action_index += 1
-            total_guesses += 1
-        loss,action_index_for_each_game = loss_fn(current_board,action_index,ship_sizes)
-        loss.backward()
-        optimizer.step()
+    action_log = torch.zeros((board_size), dtype=torch.int32,device=device)
+    hit_log = torch.zeros((board_size), dtype=torch.int32,device=device)
 
-    return hit_log, action_log, current_board, action_index_for_each_game
+    current_board = torch.from_numpy(np.zeros(shape=(1,board_size), dtype=np.int64)).type(torch.int32).to(device)  # 0 no bomb, 1 bomb, 2 hit
+    ship_sizes = torch.tensor(ship_sizes, dtype=torch.float32, device=device, requires_grad=True)
+    # loss_fn = BattleshipLoss()
+    criterion = nn.CrossEntropyLoss(ignore_index=0)
+
+    action_index = 0
+    while (torch.min(torch.sum(hit_log,dim=-1)) < sum(ship_sizes)) and (action_index < board_size):
+        optimizer.zero_grad()
+        src = current_board.clone()
+        output = model(target,target)
+
+        val_loss = criterion(output.contiguous().view(-1, board_size), current_board.view(-1).contiguous().long())  # Convert to long
+
+        # loss,action_index_for_each_game = loss_fn(current_board,action_index,ship_sizes)
+        # loss.backward()
+        val_loss.backward()
+        optimizer.step()
+        print(f"Action Index: {action_index:d}, Loss: {val_loss.item():0.3e}")
+    return hit_log, action_log, current_board, action_index
 
 def train():
-    n_games_per_epoch = 1
-    epochs = 5000
+    epochs = 1000
+    batches = 1000
+    batch_size = 32 
+
     board_height = 10
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
 
     src_vocab_size = board_height*board_width
-    tgt_vocab_size = 1
+    tgt_vocab_size = board_height*board_width
     d_model = 256
     num_heads = 4
-    num_layers = 8
+    num_layers = 10
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.0
+    dropout = 0
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
@@ -107,33 +101,33 @@ def train():
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
 
-    # input_size = 100
-    # hidden = [2048,2048,2048]
-    # output_size = 100
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 
-    # model = SimpleDNN(input_size, hidden, output_size)
+    ship_position_indices = list()
+    target_board_batches = list()
+    for _ in range(batches):
+        current_board = np.zeros((batch_size,board_height*board_width))
+        for batch in range(batch_size):
+            ship_positions = place_ships(board_height,board_width,SHIP_SIZES)
+            ship_position_indices.append(np.where(ship_positions == 1)[1])
+            for bomb_index in range(board_width*board_height):
+                current_board[batch,bomb_index] = 2 * (bomb_index in ship_position_indices[0]) + 1 * (bomb_index not in ship_position_indices[0])  # 0 no bomb, 1 bomb, 2 hit
+        target_board_batches.append(current_board)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-2, weight_decay=1e-2)
-    hit_to_guess_tracker = []; wrong_guess_tracker = []; correct_guess_tracker = []
+    criterion = nn.CrossEntropyLoss()
+
     # Train the model
     for epoch in range(epochs):
-        hit_log, action_log,current_board, action_index_for_each_game = play_game(model,optimizer,training=True,board_height=board_height,board_width=board_width,n_games=n_games_per_epoch,ship_sizes=SHIP_SIZES)
-        
-        hit_to_guess_ratio = torch.mean(torch.sum(hit_log == 1,dim=1)/action_index_for_each_game)
-        wrong_guess_ratio = torch.mean(torch.sum(current_board == 1,dim=1)/action_index_for_each_game)
-        correct_guess_ratio = torch.mean(torch.sum(current_board == 2,dim=1)/action_index_for_each_game)
-        print(f"Epoch: {epoch:d} Hit to guess ratio: {hit_to_guess_ratio:0.3e}, Wrong guess ratio: {wrong_guess_ratio:0.3e}, Correct guess ratio: {correct_guess_ratio:0.3e}")
+        for tgt in target_board_batches:
+            optimizer.zero_grad()
+            tgt = torch.from_numpy(tgt).type(torch.LongTensor).to(device)  # 0 no bomb, 1 bomb, 2 hit
+            output = model(tgt,tgt,0.15)
+            val_loss = criterion(output.contiguous().view(-1, board_height*board_width), tgt.view(-1).contiguous().long())  # Convert to long
+            val_loss.backward()
+            optimizer.step()
+        print(f"Action Index: {epoch:d}, Loss: {val_loss.item():0.3e}")
 
-        # Print Games Statistics, total guesses to find all ships, hit to guess ratio, wrong guess ratio, correct guess ratio
-        print(f"Epoch: {epoch:d} Total Hits: {torch.sum(hit_log):d}")
-        print(f"Epoch: {epoch:d} Average guesses to find all ships: {torch.mean(action_index_for_each_game):0.2f}")
-        print(f"Epoch: {epoch:d} Min guess to find all ships: {torch.min(action_index_for_each_game):0.2f}")
-        print(f"Epoch: {epoch:d} Max guess to find all ships: {torch.max(action_index_for_each_game):0.2f}")
-
-        hit_to_guess_tracker.append(hit_to_guess_ratio)
-        wrong_guess_tracker.append(wrong_guess_ratio)
-        correct_guess_tracker.append(correct_guess_ratio)
     
     # Save the model
     data = dict()
@@ -150,9 +144,6 @@ def train():
         'dropout': dropout
     }
     
-    data['hit_to_guess_tracker'] = hit_to_guess_tracker
-    data['wrong_guess_tracker'] = wrong_guess_tracker
-    data['correct_guess_tracker'] = correct_guess_tracker
     torch.save(data, "battleship_data.pth")
 
 if __name__ =="__main__":
