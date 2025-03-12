@@ -154,7 +154,8 @@ class Transformer(nn.Module):
             enc_output = enc_layer(enc_output, None)
         output = self.fc_encoder(enc_output)
         output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
-        return output,enc_output
+        output = self.fc_encoder(output)
+        return output
 
     def decode(self, tgt, src, enc_output):
         src_mask = None
@@ -189,13 +190,14 @@ class Transformer(nn.Module):
         tgt_mask = tgt_mask & random_tgt_mask
         
         seq_length = tgt.size(1)
-        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
+        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length,device=tgt.device), diagonal=1)).bool()
         tgt_mask = tgt_mask & nopeak_mask
         
         return src_mask, tgt_mask
 
     def forward(self, src, tgt,mask_percentage:float=0.15):
         # src_mask, tgt_mask = self.generate_mask(src, tgt)
+        mask_percentage = torch.tensor(mask_percentage,dtype=torch.float32)
         src_mask, tgt_mask = self.generate_random_mask(src,tgt,p=mask_percentage)
 
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
