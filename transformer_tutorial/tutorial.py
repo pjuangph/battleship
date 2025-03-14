@@ -41,4 +41,6 @@ with torch.no_grad():
 
     val_output = transformer(val_src_data, val_tgt_data[:, :-1])
     val_loss = criterion(val_output.contiguous().view(-1, tgt_vocab_size), val_tgt_data[:, 1:].contiguous().view(-1))
+    predicted_token_ids = torch.argmax(val_output, dim=-1)  # Shape: (batch_size, seq_length)
+
     print(f"Validation Loss: {val_loss.item()}")
