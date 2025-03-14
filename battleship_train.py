@@ -13,8 +13,9 @@ from ship_placements import place_ships
 from transformer import Transformer 
 import os.path as osp 
 from tqdm import trange
+import random 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 
 class BattleshipLoss(nn.Module):
     def __init__(self):
@@ -25,7 +26,7 @@ class BattleshipLoss(nn.Module):
         
         # Ensure action_index is a tensor
         if not isinstance(action_index, Tensor):
-            action_index = torch.tensor(action_index, dtype=torch.float32, device=device, requires_grad=True)
+            action_index = torch.tensor(action_index, dtype=torch.float16, device=device, requires_grad=True)
 
         # Convert board to float tensor for differentiability
         current_board = current_board.float()
@@ -59,7 +60,7 @@ def play_game(model:nn.Module,optimizer, target:Tensor,training:bool=False,board
     hit_log = torch.zeros((board_size), dtype=torch.int32,device=device)
 
     current_board = torch.from_numpy(np.zeros(shape=(1,board_size), dtype=np.int64)).type(torch.int32).to(device)  # 0 no bomb, 1 bomb, 2 hit
-    ship_sizes = torch.tensor(ship_sizes, dtype=torch.float32, device=device, requires_grad=True)
+    ship_sizes = torch.tensor(ship_sizes, dtype=torch.float16, device=device, requires_grad=True)
     # loss_fn = BattleshipLoss()
     criterion = nn.CrossEntropyLoss(ignore_index=0)
 
@@ -79,9 +80,9 @@ def play_game(model:nn.Module,optimizer, target:Tensor,training:bool=False,board
     return hit_log, action_log, current_board, action_index
 
 def train():
-    epochs = 100
-    batches = 10000
-    batch_size = 16 
+    epochs = 10
+    batches = 50
+    batch_size = 32 
 
     board_height = 10
     board_width = 10
@@ -105,53 +106,63 @@ def train():
     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
     optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
-    if (not osp.exists("data/training_data.pth")):
+    if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
-        current_board = np.zeros((batches,batch_size,board_height*board_width))
+        src_board = np.zeros((batches,batch_size,board_height*board_width))
+        tgt_board = np.zeros((batches,batch_size,board_height*board_width))
         for batch_index in trange(batches):
             for batch in range(batch_size):
                 ship_positions = place_ships(board_height,board_width,SHIP_SIZES)
                 ship_position_indices = np.where(ship_positions == 1)[1]
                 for bomb_index in range(board_width*board_height):
-                    current_board[batch_index,batch,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+                    tgt_board[batch_index,batch,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+                src_board[batch_index,batch,:] = tgt_board[batch_index,batch,:] * np.random.choice([0, 1], size=board_width*board_height, p=[0.7, 0.3])
+
         os.makedirs('data',exist_ok=True)
-        pickle.dump(current_board,open('data/training_data.pth','wb'))
+        pickle.dump({'src':src_board,'tgt':tgt_board},open('data/training_data.pickle','wb'))
     else:
-        current_board = pickle.load(open('data/training_data.pth','rb'))
+        data = pickle.load(open('data/training_data.pickle','rb'))
+        src_board = data['src']
+        tgt_board = data['tgt']
 
     criterion = nn.CrossEntropyLoss()
 
     # Train the model
     print("Training the model")
-    for epoch in trange(epochs):
+    pbar = trange(epochs)
+    for epoch in pbar:
         for batch_indx in range(batches):
-            tgt = current_board[batch_indx,:,:]
+            src = src_board[batch_indx,:,:]
+            tgt = tgt_board[batch_indx,:,:]
             optimizer.zero_grad()
-            tgt = torch.from_numpy(tgt).type(torch.LongTensor).to(device)  # 0 no bomb, 1 bomb, 2 hit
-            output = model(tgt,tgt,0.15)
+            src = torch.from_numpy(src).type(torch.LongTensor).to(device)  # 0 no bomb, 1 bomb, 2 hit
+            tgt = torch.from_numpy(tgt).type(torch.LongTensor).to(device)  
+            output = model(src,tgt,0.15)
             val_loss = criterion(output.contiguous().view(-1, board_height*board_width), tgt.view(-1).contiguous().long())  # Convert to long
             val_loss.backward()
             optimizer.step()
-        print(f"Action Index: {epoch:d}, Loss: {val_loss.item():0.3e}")
+        pbar.set_description(f"Action Index: {epoch:d}, Loss: {val_loss.item():0.2e}")
 
-    print("Training with 50%% dropout")
-    for epoch in trange(epochs):
+    print("Training with 50% dropout")
+    pbar = trange(epochs)
+    for epoch in pbar:
         for batch_indx in range(batches):
-            tgt = current_board[batch_indx,:,:]
+            src = src_board[batch_indx,:,:]
+            tgt = tgt_board[batch_indx,:,:]
             optimizer.zero_grad()
-            tgt = torch.from_numpy(tgt).type(torch.LongTensor).to(device)  # 0 no bomb, 1 bomb, 2 hit
-            output = model(tgt,tgt,0.50)
+            src = torch.from_numpy(src).type(torch.LongTensor).to(device)  # 0 no bomb, 1 bomb, 2 hit
+            tgt = torch.from_numpy(tgt).type(torch.LongTensor).to(device)  
+            output = model(src,tgt,0.50)
             val_loss = criterion(output.contiguous().view(-1, board_height*board_width), tgt.view(-1).contiguous().long())  # Convert to long
             val_loss.backward()
             optimizer.step()
-        print(f"Action Index: {epoch:d}, Loss: {val_loss.item():0.3e}")
+        pbar.set_description(f"Action Index: {epoch:d}, Loss: {val_loss.item():0.2e}")
     
     # Train the encoder to guess the target based on partial information
     # Save the model
     data = dict()
     data['model'] = {
         'state_dict': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
         'src_vocab_size': src_vocab_size,
         'tgt_vocab_size': tgt_vocab_size,
         'd_model': d_model,
@@ -161,16 +172,8 @@ def train():
         'max_seq_length': max_seq_length,
         'dropout': dropout
     }
+    data['optimizer'] = optimizer.state_dict()
     torch.save(data, "data/trained_model.pth")
 
-def train_encoder_only():
-    data = torch.load('data/trained_model.pth')
-    data = data['model']
-    model = Transformer(src_vocab_size=data['src_vocab_size'],
-                        tgt_vocab_size=data['tgt_vocab_size'], 
-                        d_model=data['d_model'], num_heads=data['num_heads'], num_layers=data['num_layers'], 
-                        d_ff=data['d_ff'], 
-                        max_seq_length=data['max_seq_length'], dropout=data['dropout']).to(device)
-    
 if __name__ =="__main__":
     train()
