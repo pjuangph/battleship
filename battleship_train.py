@@ -43,9 +43,8 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
     return src_board,tgt_board
     
 def train():
-    epochs = 5
+    epochs = 6
     ngames = 10000 # Number of games to generate
-    batch_size = 128 
 
     board_height = 10
     board_width = 10
