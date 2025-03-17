@@ -38,13 +38,13 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices = np.where(ship_positions == 1)[1]
         for bomb_index in range(board_width*board_height):
-            tgt_board[indx,bomb_index] = 2 * (bomb_index in ship_position_indices) + (np.random.choice([0, 1])) * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+            tgt_board[indx,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
             src_board[indx,:] = tgt_board[indx,:] * np.random.choice([0, 1], size=board_width*board_height, p=[src_blank, 1-src_blank])
     return src_board,tgt_board
     
 def train():
     epochs = 4
-    ngames = 5000 # Number of games to generate
+    ngames = 1000  # Number of games to generate
 
     board_height = 10
     board_width = 10
@@ -70,9 +70,9 @@ def train():
     
     if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
-        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.55)
-        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.50)
-        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.45)
+        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.3)
+        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.5)
+        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.7)
 
         os.makedirs('data',exist_ok=True)
         data = {'mask1':{
@@ -104,7 +104,7 @@ def train():
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 64
+        batch_size = 32
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         criterion = nn.CrossEntropyLoss()

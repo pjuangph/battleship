@@ -111,7 +111,13 @@ def auto_game(n_games:int=1,train:bool=False):
                     human_readable_bomb_index = bomb_index
                 else:
                     bomb_index = np.random.choice(bomb_locations)
-                    human_readable_bomb_index = human_readable_bomb_locations[np.where(bomb_locations==bomb_index)[0][0]]
+                    while bomb_index in past_predictions:
+                        bomb_index = np.random.randint(0,board_height*board_width-1)
+                    try:                        
+                        human_readable_bomb_index = human_readable_bomb_locations[np.where(bomb_locations==bomb_index)[0][0]]
+                    except:
+                        human_readable_bomb_index = ""
+                        pass
                 tries+=1
             past_predictions.append(bomb_index)
             current_board = current_board.reshape((1,board_height*board_width)).to(device)
@@ -149,5 +155,5 @@ def auto_game(n_games:int=1,train:bool=False):
         
 if __name__=="__main__":
     # game_helper()
-    # auto_game(n_games=10, train=True)
+    auto_game(n_games=100, train=True)
     auto_game()
