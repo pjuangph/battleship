@@ -43,7 +43,7 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
     return src_board,tgt_board
     
 def train():
-    epochs = 6
+    epochs = 4
     ngames = 10000 # Number of games to generate
 
     board_height = 10
@@ -54,10 +54,10 @@ def train():
     tgt_vocab_size = 3 # 0, 1, 2
     d_model = 256
     num_heads = 4
-    num_layers = 10
+    num_layers = 12
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.2
+    dropout = 0.1
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
@@ -70,23 +70,23 @@ def train():
     
     if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
-        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.7)
-        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.5)
-        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.6)
-        
+        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.70)
+        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.60)
+        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.50)
+
         os.makedirs('data',exist_ok=True)
-        data = {'mask25':{
-                                'src':src1,
-                                'tgt':tgt1,
-                            },
-                     'mask50':{
-                                'src':src2,
-                                'tgt':tgt2,
-                            },
-                    'mask75':{
-                                'src':src3,
-                                'tgt':tgt3,
-                            }
+        data = {'mask1':{
+                            'src':src1,
+                            'tgt':tgt1,
+                        },
+                'mask2':{
+                            'src':src2,
+                            'tgt':tgt2,
+                        },
+                'mask3':{
+                            'src':src3,
+                            'tgt':tgt3,
+                        }
                 }
         pickle.dump(data,open('data/training_data.pickle','wb'))
     else:
@@ -95,7 +95,7 @@ def train():
 
     def train_loop(src:npt.NDArray,tgt:npt.NDArray,src_mask:float):
         # Train the model
-        src_train, src_test, tgt_train, tgt_test = train_test_split(src, tgt, test_size=0.2, random_state=42)
+        src_train, src_test, tgt_train, tgt_test = train_test_split(src, tgt, test_size=0.3,shuffle=True)
         src_train_tensor = torch.tensor(src_train, dtype=torch.long)
         tgt_train_tensor = torch.tensor(tgt_train, dtype=torch.long)
         src_test_tensor = torch.tensor(src_test, dtype=torch.long)
@@ -138,21 +138,28 @@ def train():
             pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
     
     model.to(device)
-    print("Training with 25% target mask")
-    src = data['mask25']['src']
-    tgt = data['mask25']['tgt']    
-    train_loop(src,tgt,0.25)
-    
-    print("Training with 50% target mask")
-    src = data['mask50']['src']
-    tgt = data['mask50']['tgt']
-    train_loop(src,tgt,0.50)
-    
-    print("Training with 50% target mask")
-    src = data['mask75']['src']
-    tgt = data['mask75']['tgt']
-    train_loop(src,tgt,0.75)
+    src1 = data['mask1']['src']
+    tgt1 = data['mask1']['tgt']    
+    src2 = data['mask2']['src']
+    tgt2 = data['mask2']['tgt']
+    src3 = data['mask3']['src']
+    tgt3 = data['mask3']['tgt']
 
+    
+
+    print("Training with 20% source and target mask")
+    train_loop(src1,tgt1,0.20)
+    train_loop(src2,tgt2,0.20)
+    train_loop(src3,tgt3,0.20)
+
+    
+    # print("Training with 20% source and target mask")
+    # train_loop(src1,tgt1,0.4)
+    # train_loop(src2,tgt2,0.4)
+    # train_loop(src3,tgt3,0.4)
+    
+
+    
     # Train the encoder to guess the target based on partial information
     # Save the model
     data = dict()

@@ -197,7 +197,7 @@ class Transformer(nn.Module):
 
     def forward(self, src, tgt,mask_percentage:float=0.15):
         # src_mask, tgt_mask = self.generate_mask(src, tgt)
-        mask_percentage = torch.tensor(mask_percentage,dtype=torch.float16)
+        mask_percentage = torch.tensor(mask_percentage,dtype=torch.float32)
         src_mask, tgt_mask = self.generate_random_mask(src,tgt,p=mask_percentage)
 
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
@@ -209,7 +209,7 @@ class Transformer(nn.Module):
 
         dec_output = tgt_embedded
         for dec_layer in self.decoder_layers:
-            dec_output = dec_layer(dec_output, enc_output, src_mask, None)
+            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
 
         output = self.fc_decoder(dec_output)
         return output
