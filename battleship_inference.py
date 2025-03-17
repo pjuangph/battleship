@@ -4,6 +4,7 @@ from transformer import Transformer
 import numpy as np 
 import numpy.typing as npt
 from ship_placements import place_ships, print_board
+from tqdm import trange
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -24,20 +25,20 @@ def load_model():
     optimizer.load_state_dict(data['optimizer'])
 
     model.eval()
-    return model 
+    return model,optimizer
  
-def run_inference(model:torch.nn.Module,current_board:npt.NDArray)->str:
+def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     board_width  = current_board.shape[0]
     board_length = current_board.shape[1]
     
     board_size = current_board.shape[0]*current_board.shape[1]
-    current_board = np.reshape(current_board, (1, board_size))
+    current_board = torch.reshape(current_board, (1, board_size)).to(device)
     current_board = torch.tensor(current_board, dtype=torch.long).to(device)
     target_board = torch.zeros((current_board.shape),dtype=torch.long).to(device)
 
     bomb_index = -1
     with torch.no_grad():  # Disable gradient computation for speedup
-        output = model(current_board,current_board)
+        output = model(current_board,current_board,0)
         predicted_token_ids = torch.argmax(output, dim=-1).cpu()  # Shape: (batch_size, seq_length)
 
     predicted_token_ids = predicted_token_ids.numpy()
@@ -81,9 +82,10 @@ def auto_game(n_games:int=1,train:bool=False):
     ship_sizes = [2,3,3,4,5]
     board_height = 10
     board_width = 10
-    model = load_model()
-    
-    for _ in range(n_games):
+    model,optimizer = load_model()
+    model = model.to(device)
+    pbar = trange(n_games)
+    for game in pbar:
         hits = 0
         bomb_index = -1
         past_predictions = [-1]
@@ -94,19 +96,37 @@ def auto_game(n_games:int=1,train:bool=False):
         if n_games==1:
             print("Ship positions:")
             print_board(ship_positions.reshape(board_height,board_width))
-
+            
+        if train:
+            criterion = torch.nn.CrossEntropyLoss()
+            tgt_vocab_size = 3 
+            
         current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
         while guesses < board_height*board_width and hits < sum(ship_sizes):
             human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)
             tries = 0
-            while (bomb_index in past_predictions) & (tries <20):
-                bomb_index = np.random.choice(bomb_locations)
-                human_readable_bomb_index = human_readable_bomb_locations[np.where(bomb_locations==bomb_index)[0][0]]
+            while (bomb_index in past_predictions) & (tries <100):
+                if len(bomb_locations) == 0:
+                    bomb_index = np.random.randint(0,board_height*board_width-1)
+                    human_readable_bomb_index = bomb_index
+                else:
+                    bomb_index = np.random.choice(bomb_locations)
+                    human_readable_bomb_index = human_readable_bomb_locations[np.where(bomb_locations==bomb_index)[0][0]]
                 tries+=1
             past_predictions.append(bomb_index)
-            current_board = current_board.reshape((1,board_height*board_width))
-        
+            current_board = current_board.reshape((1,board_height*board_width)).to(device)
+
+            prev_board = current_board.detach().clone().to(device)
             current_board[0,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit        
+            if train & (guesses>50):
+                model.train()
+                optimizer.zero_grad()
+                output = model(prev_board,current_board)
+                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), current_board.view(-1).contiguous().long())  # Convert to long
+                loss.backward()
+                optimizer.step()
+                pbar.set_description(f"Game: {game:d} Guess: {guesses:d} Train Loss: {loss.item():0.2e}")
+                                     
             if (current_board[0,bomb_index] == 2) & (tries < 20):
                 hit_or_miss = "hit"
                 hits += 1
@@ -120,8 +140,14 @@ def auto_game(n_games:int=1,train:bool=False):
             guesses += 1
         if n_games==1:
             print(f"total hits {hits}")
-            print_board(current_board.reshape(board_height,board_width))            
-
+            print_board(current_board.reshape(board_height,board_width)) 
+                       
+    if train:
+        data = torch.load('data/trained_model.pth')
+        data['model']['state_dict'] = model.state_dict()
+        torch.save(data, "data/trained_model.pth")
+        
 if __name__=="__main__":
     # game_helper()
+    # auto_game(n_games=10, train=True)
     auto_game()

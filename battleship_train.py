@@ -38,13 +38,13 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices = np.where(ship_positions == 1)[1]
         for bomb_index in range(board_width*board_height):
-            tgt_board[indx,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+            tgt_board[indx,bomb_index] = 2 * (bomb_index in ship_position_indices) + (np.random.choice([0, 1])) * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
             src_board[indx,:] = tgt_board[indx,:] * np.random.choice([0, 1], size=board_width*board_height, p=[src_blank, 1-src_blank])
     return src_board,tgt_board
     
 def train():
     epochs = 4
-    ngames = 10000 # Number of games to generate
+    ngames = 5000 # Number of games to generate
 
     board_height = 10
     board_width = 10
@@ -55,9 +55,9 @@ def train():
     d_model = 256
     num_heads = 4
     num_layers = 12
-    d_ff = 2048
+    d_ff = 1024
     max_seq_length = board_height*board_width
-    dropout = 0.1
+    dropout = 0.2
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
@@ -70,9 +70,9 @@ def train():
     
     if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
-        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.70)
-        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.60)
-        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.50)
+        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.55)
+        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.50)
+        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.45)
 
         os.makedirs('data',exist_ok=True)
         data = {'mask1':{
@@ -147,11 +147,13 @@ def train():
 
     
 
-    print("Training with 20% source and target mask")
-    train_loop(src1,tgt1,0.20)
-    train_loop(src2,tgt2,0.20)
-    train_loop(src3,tgt3,0.20)
-
+    print("Training with 25% source and target mask")
+    train_loop(src1,tgt1,0.15)
+    train_loop(src2,tgt2,0.15)
+    train_loop(src3,tgt3,0.15)
+    train_loop(src1,tgt1,0.30)
+    train_loop(src2,tgt2,0.30)
+    train_loop(src3,tgt3,0.30)
     
     # print("Training with 20% source and target mask")
     # train_loop(src1,tgt1,0.4)
@@ -159,7 +161,6 @@ def train():
     # train_loop(src3,tgt3,0.4)
     
 
-    
     # Train the encoder to guess the target based on partial information
     # Save the model
     data = dict()
@@ -176,6 +177,7 @@ def train():
     }
     data['optimizer'] = optimizer.state_dict()
     torch.save(data, "data/trained_model.pth")
+    torch.save(data, "data/trained_model.bak.pth")
 
 if __name__ =="__main__":
     train()

@@ -180,7 +180,7 @@ class Transformer(nn.Module):
     
     def generate_random_mask(self, src, tgt, p:float=0.15):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+        tgt_mask = (tgt != 1).unsqueeze(1).unsqueeze(3)
         
         # Apply random masking
         random_src_mask = (torch.rand_like(src_mask.float()) > p).bool()
@@ -197,9 +197,8 @@ class Transformer(nn.Module):
 
     def forward(self, src, tgt,mask_percentage:float=0.15):
         # src_mask, tgt_mask = self.generate_mask(src, tgt)
-        mask_percentage = torch.tensor(mask_percentage,dtype=torch.float32)
+        mask_percentage = torch.tensor(mask_percentage,dtype=torch.float32).to(src.device)
         src_mask, tgt_mask = self.generate_random_mask(src,tgt,p=mask_percentage)
-
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
 
