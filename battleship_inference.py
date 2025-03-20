@@ -101,7 +101,7 @@ def auto_game(n_games:int=1,train:bool=False):
             criterion = torch.nn.CrossEntropyLoss()
             tgt_vocab_size = 3 
             
-        current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
+        current_board = torch.from_numpy(np.ones(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
         while guesses < board_height*board_width and hits < sum(ship_sizes):
             human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)
             tries = 0
@@ -148,12 +148,12 @@ def auto_game(n_games:int=1,train:bool=False):
             print(f"total hits {hits}")
             print_board(current_board.reshape(board_height,board_width)) 
                        
-    if train:
-        data = torch.load('data/trained_model.pth')
-        data['model']['state_dict'] = model.state_dict()
-        torch.save(data, "data/trained_model.pth")
+    # if train:
+    #     data = torch.load('data/trained_model.pth')
+    #     data['model']['state_dict'] = model.state_dict()
+    #     torch.save(data, "data/trained_model.pth")
         
 if __name__=="__main__":
     # game_helper()
-    auto_game(n_games=100, train=True)
+    # auto_game(n_games=100, train=True)
     auto_game()
