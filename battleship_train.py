@@ -122,8 +122,13 @@ def train():
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
-        weights = torch.tensor([0.2, 0.5, 1.2]).to(device)         # criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
-        criterion = nn.CrossEntropyLoss(ignore_index=-100,weight=weights)
+        # Calculate class weights (adjust manually if needed)
+        all_targets = tgt_train_tensor.view(-1)
+        class_counts = torch.bincount(all_targets, minlength=3).float()
+        class_weights = 1.0 / (class_counts + 1e-6)
+        class_weights = class_weights / class_weights.sum()
+        class_weights = class_weights.to(device)
+        criterion = nn.CrossEntropyLoss(ignore_index=-100,weight=class_weights)
         
         for epoch in range(epochs):
             model.train()
