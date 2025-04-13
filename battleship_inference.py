@@ -56,9 +56,14 @@ def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
 
     bomb_index = -1
     with torch.no_grad():  # Disable gradient computation for speedup        
-        memory = model.encode(current_board)
+        another_output = model(current_board,current_board)
+        another_output = torch.argmax(another_output, dim=-1)  # Shape: (batch_size, seq_length)
+        another_output = another_output.cpu().numpy()
+            
+        memory = model.encoder(current_board)
+        output = target_board
         for _ in range(5):
-            output = model.decode(memory, target_board)
+            output = model.decoder(memory, output)
             output = torch.argmax(output, dim=-1)  # Shape: (batch_size, seq_length)
     predicted_token_ids = output.cpu().numpy()
     

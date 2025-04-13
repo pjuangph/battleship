@@ -152,7 +152,7 @@ class Transformer(nn.Module):
             enc_output = enc_layer(enc_output, src_mask)
         return enc_output
 
-    def decoder(self, tgt, enc_output, src_mask=None, tgt_mask=None):
+    def decoder(self, enc_output,tgt, src_mask=None, tgt_mask=None):
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
         dec_output = tgt_embedded
         for dec_layer in self.decoder_layers:

@@ -32,7 +32,8 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
     Returns:
         Tuple[npt.NDArray,npt.NDArray]: source, target
     """
-    number_of_guesses = board_height * board_width
+    percent_of_src_to_generate = 0.15
+    number_of_guesses = int(board_height * board_width*(1-percent_of_src_to_generate))
     src_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
     tgt_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
     for indx in trange(nboards):
@@ -41,10 +42,18 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
         bomb_locations = np.arange(board_height*board_width)
         for guess in range(number_of_guesses):
             tgt_board[indx*number_of_guesses+guess,:] = 2*(ship_positions  == 1) + 1*(ship_positions == 0)
-        for guess in range(number_of_guesses):
+        
+        for p in range(board_height*board_width-number_of_guesses): # Lets guess 15 % of the board before we begin training 
+            bomb_index = np.random.choice(bomb_locations)            
+            src_board[indx*number_of_guesses,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
+            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))
+            
+        for guess in range(1,number_of_guesses):
+            src_board[indx*number_of_guesses+guess,:] = src_board[indx*number_of_guesses+guess-1,:]
             bomb_index = np.random.choice(bomb_locations)            
             src_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
-            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))     
+            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))   
+          
     return src_board,tgt_board
     
 def generate_square_subsequent_mask(size):
@@ -55,14 +64,14 @@ def generate_square_subsequent_mask(size):
 
 def train():
     epochs = 2
-    ngames = 1000  # Number of games to generate
+    ngames = 5000  # Number of games to generate
 
     board_height = 10
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
 
     src_vocab_size = board_height*board_width
-    tgt_vocab_size = 3 # 0, 1, 2
+    tgt_vocab_size = 4 # 0, 1, 2
     d_model = 512
     num_heads = 8
     num_layers = 12
@@ -101,7 +110,7 @@ def train():
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 32
+        batch_size = 1
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         criterion = nn.CrossEntropyLoss()
@@ -121,7 +130,7 @@ def train():
                 random_mask = torch.rand_like(tgt_batch.float()) > percent_of_tgt_to_mask
                 tgt_batch_mask = torch.where(is_one & ~random_mask,torch.tensor(0),tgt_batch) 
                 
-                output = model(src_batch,tgt_batch_mask)
+                output = model(src_batch,tgt_batch)
                 output_tokens = output.argmax(dim=-1)
 
                 matches = torch.sum(output_tokens == tgt_batch)
