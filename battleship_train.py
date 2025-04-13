@@ -63,8 +63,8 @@ def generate_square_subsequent_mask(size):
 
 
 def train():
-    epochs = 2
-    ngames = 5000  # Number of games to generate
+    epochs = 1
+    ngames = 500  # Number of games to generate
 
     board_height = 10
     board_width = 10
@@ -110,11 +110,11 @@ def train():
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 1
+        batch_size = 32
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
-        class_weights = torch.tensor([0.1, 0.1, 0.8])
+        class_weights = torch.tensor([0.05, 0.05, 0.9])
         
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
         
