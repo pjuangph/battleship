@@ -56,22 +56,15 @@ def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
 
     bomb_index = -1
     with torch.no_grad():  # Disable gradient computation for speedup
-        n = torch.sum(current_board == 0)
         memory = model.encoder(current_board)
-        output = current_board.clone()
-        for _ in range(n):
-            output = model.decoder(memory, output)
-            output = torch.argmax(output, dim=-1)  # Shape: (batch_size, seq_length)
+        output = current_board.clone()        
+        output = model.decoder(memory, output)
+        output = torch.argmax(output, dim=-1)  # Shape: (batch_size, seq_length)
     predicted_token_ids = output.cpu().numpy()
     
     bomb_indices = np.where(predicted_token_ids==2)[1]
     # Convert prediction back to matrix 
-    human_readable_bomb_locations = []
-    bomb_locations = []
-    for bomb_index in bomb_indices:        
-        human_readable_bomb_locations.append(bomb_index_to_human_readable(bomb_index,board_width))
-        bomb_locations.append(bomb_index)
-    return human_readable_bomb_locations,bomb_locations,predicted_token_ids.reshape((board_length,board_width))
+    return bomb_indices,predicted_token_ids.reshape((board_length,board_width))
 
 def ai_helper():
     """AI helps you win
@@ -122,21 +115,23 @@ def auto_game(n_games:int=1,train:bool=False):
             tgt_vocab_size = 3 
             
         current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
-        percent_of_board_to_guess = 0.15
+        percent_of_board_to_guess = 0.10
         while guesses < board_height*board_width and hits < sum(ship_sizes):
-            
+            # Make the guess
             if guesses < board_width*board_height*percent_of_board_to_guess:
                 bomb_index = np.random.choice(bomb_guesses)
                 human_readable_bomb_index = bomb_index_to_human_readable(bomb_index,board_width)
             else:
-                human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)                
-                bomb_index = np.random.choice(bomb_locations)
-                while bomb_index in past_predictions:
-                    bomb_index = np.random.randint(0,board_height*board_width-1)
-                try:                        
-                    human_readable_bomb_index = human_readable_bomb_index(bomb_index,board_width)
-                except:
-                    human_readable_bomb_index = ""            
+                bomb_locations,predicted_board = run_inference(model,current_board)  
+                for p in past_predictions:              
+                    bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == p)) 
+                if len(bomb_locations) == 0:
+                    bomb_index = np.random.randint(0,board_height*board_width-1) 
+                    print("No more bomb locations, making a random guess")
+                else:
+                    bomb_index = np.random.choice(bomb_locations)
+                    human_readable_bomb_index = bomb_index_to_human_readable(bomb_index,board_width)
+            # Test the guess
             current_board = current_board.reshape((1,board_height*board_width)).to(device)
 
             prev_board = current_board.detach().clone().to(device)
@@ -157,7 +152,7 @@ def auto_game(n_games:int=1,train:bool=False):
                 hit_or_miss = "miss"
             current_board = current_board.reshape((board_height,board_width))
             if n_games==1:
-                print(f"\nGuessed {guesses} {human_readable_bomb_index} {hit_or_miss}")
+                print(f"\nGuessed {guesses} human_readable_bomb_index {human_readable_bomb_index} bomb_index {bomb_index} {hit_or_miss}")
                 if guesses < board_width*board_height*percent_of_board_to_guess:
                     print_board(current_board)
                 else:

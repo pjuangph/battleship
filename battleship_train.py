@@ -18,8 +18,9 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+torch.cuda.empty_cache()
 
-def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
+def generate_game_data_steps(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
     """Generates dummy game data for training 
 
     Args:
@@ -49,7 +50,44 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
             bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))
         
     return src_board,tgt_board
-    
+
+def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
+    """Generates dummy game data for training 
+
+    Args:
+        nboards (int): number boards to generate
+        board_height (int): board height in units
+        board_width (int): board width in units
+        ship_sizes (List[int]): Array of ship sizes e.g. [2,3,3,4,5]
+        src_blank (float): percent of source board to blank out 
+
+    Returns:
+        Tuple[npt.NDArray,npt.NDArray]: source, target
+    """
+    percent_of_src_to_generate = 0.10
+    number_of_guesses = int(board_height * board_width*(1-percent_of_src_to_generate))
+    src_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
+    tgt_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
+    for indx in trange(nboards):
+        ship_positions = place_ships(board_height,board_width,ship_sizes)
+        ship_position_indices = np.where(ship_positions == 1)[1]
+        bomb_locations = np.arange(board_height*board_width)
+        for guess in range(number_of_guesses):
+            tgt_board[indx*number_of_guesses+guess,:] = 2*(ship_positions  == 1) + 1*(ship_positions == 0)
+        
+        for p in range(board_height*board_width-number_of_guesses): # Lets guess 15 % of the board before we begin training 
+            bomb_index = np.random.choice(bomb_locations)            
+            src_board[indx*number_of_guesses,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
+            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))
+            
+        for guess in range(1,number_of_guesses):
+            src_board[indx*number_of_guesses+guess,:] = src_board[indx*number_of_guesses+guess-1,:]
+            bomb_index = np.random.choice(bomb_locations)            
+            src_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
+            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))   
+          
+    return src_board,tgt_board
+
 def generate_square_subsequent_mask(size):
     mask = torch.triu(torch.ones(size, size), diagonal=1)  # Upper triangular mask
     mask = mask.masked_fill(mask == 1, float('-inf'))
@@ -71,29 +109,29 @@ def apply_random_mask(tgt: torch.Tensor, mask_token: int = 0, mask_prob: float =
     return masked_tgt, labels, loss_mask
 
 def train():
-    epochs = 10
-    ngames = 500  # Number of games to generate
+    epochs = 5
+    ngames = 2000  # Number of games to generate
 
     board_height = 10
     board_width = 10
     SHIP_SIZES = [2,3,3,4,5]
 
-    src_vocab_size = board_height*board_width
+    src_vocab_size = 3
     tgt_vocab_size = 3 # 0, 1, 2
-    d_model = 512
+    d_model = 1024
     num_heads = 8
     num_layers = 12
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.05
+    dropout = 0.1
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
                         d_model=d_model, num_heads=num_heads, num_layers=num_layers, 
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
+    # optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
@@ -118,7 +156,7 @@ def train():
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 32
+        batch_size = 16
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
@@ -128,22 +166,24 @@ def train():
         class_weights = 1.0 / (class_counts + 1e-6)
         class_weights = class_weights / class_weights.sum()
         class_weights = class_weights.to(device)
-        criterion = nn.CrossEntropyLoss(ignore_index=-100,weight=class_weights)
+        criterion = nn.CrossEntropyLoss(weight=class_weights,ignore_index=0)
         
         for epoch in range(epochs):
             model.train()
             pbar = tqdm(train_loader)
-            for batch in pbar:                
+            for batch in pbar:      
+                optimizer.zero_grad()
+          
                 src_batch, tgt_batch = batch
                 src_batch = src_batch.to(device)
                 tgt_batch = tgt_batch.to(device)
 
-                mask_ratio = 0.4 * torch.rand(1).item()
-                mask = (torch.rand_like(tgt_batch.float()) < mask_ratio)
+                guessed_mask = (tgt_batch != 0)
+                random_mask = (torch.rand_like(tgt_batch.float()) > 0.2).to(device)
+                final_mask = guessed_mask & random_mask
                 tgt_batch_masked = tgt_batch.clone()
-                tgt_batch_masked[mask] = -100  # Ignored in loss
-    
-                optimizer.zero_grad()
+                tgt_batch_masked[~final_mask] = 0
+                
                 output = model(src_batch, tgt_batch_masked)                
                 
                 loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
@@ -169,12 +209,12 @@ def train():
                 val_loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
 
                 pred_classes = output.argmax(dim=-1)
-                print(src_batch[0,:])
-                print(pred_classes[0,:])
+                # print(src_batch[0,:])
+                # print(pred_classes[0,:])
 
-                total_val_loss += loss.item()
+                total_val_loss += val_loss.item()
                 num_batches += 1
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {loss.item():0.2e}")
+                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {val_loss.item():0.2e}")
             average_val_loss = total_val_loss / num_batches  # Compute average validation loss
             pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
     
