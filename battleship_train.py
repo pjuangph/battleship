@@ -71,7 +71,7 @@ def train():
     SHIP_SIZES = [2,3,3,4,5]
 
     src_vocab_size = board_height*board_width
-    tgt_vocab_size = 4 # 0, 1, 2
+    tgt_vocab_size = 3 # 0, 1, 2
     d_model = 512
     num_heads = 8
     num_layers = 12
@@ -113,7 +113,10 @@ def train():
         batch_size = 1
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-        criterion = nn.CrossEntropyLoss()
+        
+        class_weights = torch.tensor([0.1, 0.1, 0.8])
+        
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
         
         miss_mask = 0.5
         for epoch in range(epochs):
@@ -135,6 +138,7 @@ def train():
 
                 matches = torch.sum(output_tokens == tgt_batch)
                 # print(torch.sum(matches))
+                
                 loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
                 pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e}")
                 loss.backward()
