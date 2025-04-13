@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 
-def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:List[int],src_blank:float) -> Tuple[npt.NDArray,npt.NDArray]:
+def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
     """Generates dummy game data for training 
 
     Args:
@@ -32,18 +32,28 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
     Returns:
         Tuple[npt.NDArray,npt.NDArray]: source, target
     """
-    src_board = np.zeros((nboards,board_height*board_width))
-    tgt_board = np.zeros((nboards,board_height*board_width))
+    number_of_guesses = board_height * board_width
+    src_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
+    tgt_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
     for indx in trange(nboards):
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices = np.where(ship_positions == 1)[1]
-        for bomb_index in range(board_width*board_height):
-            tgt_board[indx,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
-            src_board[indx,:] = tgt_board[indx,:] * np.random.choice([0, 1], size=board_width*board_height, p=[src_blank, 1-src_blank])
+        bomb_locations = np.arange(board_height*board_width)
+        for guess in range(number_of_guesses):
+            bomb_index = np.random.choice(bomb_locations)
+            tgt_board[indx*number_of_guesses+guess,bomb_index] = 1 * (bomb_index in ship_position_indices) + 0 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+            src_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
+            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))     
     return src_board,tgt_board
     
+def generate_square_subsequent_mask(size):
+    mask = torch.triu(torch.ones(size, size), diagonal=1)  # Upper triangular mask
+    mask = mask.masked_fill(mask == 1, float('-inf'))
+    return mask
+
+
 def train():
-    epochs = 10
+    epochs = 5
     ngames = 10000  # Number of games to generate
 
     board_height = 10
@@ -52,12 +62,12 @@ def train():
 
     src_vocab_size = board_height*board_width
     tgt_vocab_size = 3 # 0, 1, 2
-    d_model = 256
-    num_heads = 4
+    d_model = 512
+    num_heads = 8
     num_layers = 12
-    d_ff = 1024
+    d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.2
+    dropout = 0.1
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
@@ -70,24 +80,10 @@ def train():
     
     if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
-        src1,tgt1 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.3)
-        src2,tgt2 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.5)
-        src3,tgt3 = generate_game_data(ngames,board_height,board_width,SHIP_SIZES,0.7)
+        src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
 
         os.makedirs('data',exist_ok=True)
-        data = {'mask1':{
-                            'src':src1,
-                            'tgt':tgt1,
-                        },
-                'mask2':{
-                            'src':src2,
-                            'tgt':tgt2,
-                        },
-                'mask3':{
-                            'src':src3,
-                            'tgt':tgt3,
-                        }
-                }
+        data = {'src':src,'tgt':tgt}
         pickle.dump(data,open('data/training_data.pickle','wb'))
     else:
         data = pickle.load(open('data/training_data.pickle','rb'))
@@ -118,36 +114,14 @@ def train():
                 tgt_batch = tgt_batch.to(device)
                 optimizer.zero_grad()
                 
-                # Masking some of source 1 to 0
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_one = src_batch == 1
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                src_batch_mask = torch.where(is_one & ~random_mask, torch.tensor(0), src_batch)
+                tgt_mask = generate_square_subsequent_mask(board_height*board_width).to(device)
 
-                # Masking some of source 2 to 0 
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_two = src_batch == 2
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                src_batch_mask = torch.where(is_two & ~random_mask, torch.tensor(0), src_batch_mask)
-                
-                # Masking some of the target 1 to 0 
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_one = tgt_batch == 1
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                tgt_batch_mask = torch.where(is_one & ~random_mask, torch.tensor(0), tgt_batch)
-
-                output = model(src_batch_mask,tgt_batch_mask)
+                output = model(src_batch,tgt_batch,tgt_mask=tgt_mask)
                 output_tokens = output.argmax(dim=-1)
 
-                matches = (output_tokens == tgt_batch)
+                matches = torch.sum(output_tokens == tgt_batch)
                 # print(torch.sum(matches))
-                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
+                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch_mask.view(-1).contiguous().long())  # Convert to long
                 loss.backward()
                 optimizer.step()
 
@@ -158,32 +132,8 @@ def train():
                 src_batch, tgt_batch = batch
                 src_batch = src_batch.to(device)
                 tgt_batch = tgt_batch.to(device)
-                
-                # Masking some of source 1 to 0
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_one = src_batch == 1
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                src_batch_mask = torch.where(is_one & ~random_mask, torch.tensor(0), src_batch)
 
-                # Masking some of source 2 to 0 
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_two = src_batch == 2
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                src_batch_mask = torch.where(is_two & ~random_mask, torch.tensor(0), src_batch_mask)
-                
-                # Masking some of the target 1 to 0 
-                percent_of_map_to_mask = 0.1 + (0.8 - 0.1) * torch.rand(1).to(device)
-                is_one = tgt_batch == 1
-                # Generate a random mask for these positions
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_map_to_mask  # True = keep, False = mask
-                # Apply the mask: keep original values if not '2' or if not selected for masking
-                tgt_batch_mask = torch.where(is_one & ~random_mask, torch.tensor(0), tgt_batch)
-
-                output = model(src_batch_mask,tgt_batch_mask)
+                output = model(src_batch,tgt_batch)
                 val_loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
                 total_val_loss += val_loss.item()
                 num_batches += 1
@@ -192,23 +142,11 @@ def train():
             pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
     
     model.to(device)
-    src1 = data['mask1']['src']
-    tgt1 = data['mask1']['tgt']    
-    src2 = data['mask2']['src']
-    tgt2 = data['mask2']['tgt']
-    src3 = data['mask3']['src']
-    tgt3 = data['mask3']['tgt']
+    src = data['src']
+    tgt = data['tgt']    
     
-
-    print("Training with 25% source and target mask")
-    train_loop(src1,tgt1)
-    train_loop(src2,tgt2)
-    train_loop(src3,tgt3)
-    
-    # print("Training with 20% source and target mask")
-    # train_loop(src1,tgt1,0.4)
-    # train_loop(src2,tgt2,0.4)
-    # train_loop(src3,tgt3,0.4)
+    print("Train Loop")
+    train_loop(src,tgt)
     
 
     # Train the encoder to guess the target based on partial information

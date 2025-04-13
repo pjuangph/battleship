@@ -27,6 +27,16 @@ def load_model():
     model.eval()
     return model,optimizer
  
+# tgt_start = torch.tensor([[start_token]])  # Start decoding with "<SOS>"
+# output = transformer(src, tgt_start)  # First decoder step
+
+# for _ in range(max_len):  # Generate tokens until "<EOS>" appears
+#     next_token = output[:, -1]  # Get last generated token
+#     tgt_start = torch.cat([tgt_start, next_token], dim=1)  # Append new token
+#     output = transformer(src, tgt_start)  # Decode again
+#     if next_token == eos_token:
+#         break
+    
 def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     board_width  = current_board.shape[0]
     board_length = current_board.shape[1]
@@ -38,7 +48,7 @@ def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
 
     bomb_index = -1
     with torch.no_grad():  # Disable gradient computation for speedup
-        output = model(current_board,current_board,0)
+        output = model(current_board,current_board*0)
         predicted_token_ids = torch.argmax(output, dim=-1).cpu()  # Shape: (batch_size, seq_length)
 
     predicted_token_ids = predicted_token_ids.numpy()
@@ -101,7 +111,7 @@ def auto_game(n_games:int=1,train:bool=False):
             criterion = torch.nn.CrossEntropyLoss()
             tgt_vocab_size = 3 
             
-        current_board = torch.from_numpy(np.ones(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
+        current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
         while guesses < board_height*board_width and hits < sum(ship_sizes):
             human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)
             tries = 0
