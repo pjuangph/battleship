@@ -137,31 +137,22 @@ class Transformer(nn.Module):
         self.fc_decoder = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
-    def encode(self, src: torch.Tensor):
+    def encoder(self, src: torch.Tensor, src_mask: torch.Tensor = None):
         """Encoder only model
 
         Args:
             src (torch.Tensor): Input current map as a Tensor [batch, boardheight*boardwidth]
-
+            src_mask (torch.Tensor, optional): Mask for the input. Defaults to None.
         Returns:
             Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
         """
-        # src_mask = (src == 2).unsqueeze(1).unsqueeze(2)     # Mask out the misses
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
-            # enc_output = enc_layer(enc_output, src_mask)
-            enc_output = enc_layer(enc_output, None)
-        output = self.fc_encoder(enc_output)
-        output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
-        output = self.fc_encoder(output)
-        return output
+            enc_output = enc_layer(enc_output, src_mask)
+        return enc_output
 
-    def decode(self, tgt, src, enc_output):
-        src_mask = None
-        tgt_mask = None
-        # src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        # tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+    def decoder(self, tgt, enc_output, src_mask=None, tgt_mask=None):
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
         dec_output = tgt_embedded
         for dec_layer in self.decoder_layers:
@@ -195,10 +186,7 @@ class Transformer(nn.Module):
         
         return src_mask, tgt_mask
 
-    def forward(self, src, tgt,mask_percentage:float=0.15):
-        # src_mask, tgt_mask = self.generate_mask(src, tgt)
-        # mask_percentage = torch.tensor(mask_percentage,dtype=torch.float32).to(src.device)
-        # src_mask, tgt_mask = self.generate_random_mask(src,tgt,p=mask_percentage)
+    def forward(self, src, tgt):
         src_mask = None; tgt_mask = None
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
