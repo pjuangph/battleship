@@ -36,7 +36,15 @@ def load_model():
 #     output = transformer(src, tgt_start)  # Decode again
 #     if next_token == eos_token:
 #         break
-    
+
+def bomb_index_to_human_readable(bomb_index:int,board_width:int)->str:
+    """Convert bomb index to human-readable format"""
+    row = bomb_index // board_width
+    col = int(bomb_index - row * board_width)
+    # convert col to letter
+    row_str = chr(col+65)
+    return f"{row_str}-{row+1}"
+
 def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     board_width  = current_board.shape[0]
     board_length = current_board.shape[1]
@@ -47,21 +55,19 @@ def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     target_board = torch.zeros((current_board.shape),dtype=torch.long).to(device)
 
     bomb_index = -1
-    with torch.no_grad():  # Disable gradient computation for speedup
-        output = model(current_board,current_board*0)
-        predicted_token_ids = torch.argmax(output, dim=-1).cpu()  # Shape: (batch_size, seq_length)
-
-    predicted_token_ids = predicted_token_ids.numpy()
+    with torch.no_grad():  # Disable gradient computation for speedup        
+        memory = model.encode(current_board)
+        for _ in range(5):
+            output = model.decode(memory, target_board)
+            output = torch.argmax(output, dim=-1)  # Shape: (batch_size, seq_length)
+    predicted_token_ids = output.cpu().numpy()
+    
     bomb_indices = np.where(predicted_token_ids==2)[1]
     # Convert prediction back to matrix 
     human_readable_bomb_locations = []
     bomb_locations = []
-    for bomb_index in bomb_indices:
-        row = bomb_index // board_width
-        col = int(bomb_index - row * board_width)
-        # convert col to letter
-        row_str = chr(col+65)
-        human_readable_bomb_locations.append(f"{row_str}-{row+1}")
+    for bomb_index in bomb_indices:        
+        human_readable_bomb_locations.append(bomb_index_to_human_readable(bomb_index,board_width))
         bomb_locations.append(bomb_index)
     return human_readable_bomb_locations,bomb_locations,predicted_token_ids.reshape((board_length,board_width))
 
@@ -102,6 +108,8 @@ def auto_game(n_games:int=1,train:bool=False):
         guesses = 0     
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices = np.where(ship_positions == 1)[1]
+        bomb_guesses = np.arange(board_height*board_width)
+
         hit_or_miss = ""
         if n_games==1:
             print("Ship positions:")
@@ -112,24 +120,21 @@ def auto_game(n_games:int=1,train:bool=False):
             tgt_vocab_size = 3 
             
         current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
+        percent_of_board_to_guess = 0.15
         while guesses < board_height*board_width and hits < sum(ship_sizes):
-            human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)
-            tries = 0
-            while (bomb_index in past_predictions) & (tries <100):
-                if len(bomb_locations) == 0:
+            
+            if guesses < board_width*board_height*percent_of_board_to_guess:
+                bomb_index = np.random.choice(bomb_guesses)
+                human_readable_bomb_index = bomb_index_to_human_readable(bomb_index,board_width)
+            else:
+                human_readable_bomb_locations, bomb_locations,predicted_board = run_inference(model,current_board)                
+                bomb_index = np.random.choice(bomb_locations)
+                while bomb_index in past_predictions:
                     bomb_index = np.random.randint(0,board_height*board_width-1)
-                    human_readable_bomb_index = bomb_index
-                else:
-                    bomb_index = np.random.choice(bomb_locations)
-                    while bomb_index in past_predictions:
-                        bomb_index = np.random.randint(0,board_height*board_width-1)
-                    try:                        
-                        human_readable_bomb_index = human_readable_bomb_locations[np.where(bomb_locations==bomb_index)[0][0]]
-                    except:
-                        human_readable_bomb_index = ""
-                        pass
-                tries+=1
-            past_predictions.append(bomb_index)
+                try:                        
+                    human_readable_bomb_index = human_readable_bomb_index(bomb_index,board_width)
+                except:
+                    human_readable_bomb_index = ""            
             current_board = current_board.reshape((1,board_height*board_width)).to(device)
 
             prev_board = current_board.detach().clone().to(device)
@@ -143,7 +148,7 @@ def auto_game(n_games:int=1,train:bool=False):
                 optimizer.step()
                 pbar.set_description(f"Game: {game:d} Guess: {guesses:d} Train Loss: {loss.item():0.2e}")
                                      
-            if (current_board[0,bomb_index] == 2) & (tries < 20):
+            if (current_board[0,bomb_index] == 2):
                 hit_or_miss = "hit"
                 hits += 1
             else:
@@ -151,8 +156,13 @@ def auto_game(n_games:int=1,train:bool=False):
             current_board = current_board.reshape((board_height,board_width))
             if n_games==1:
                 print(f"\nGuessed {guesses} {human_readable_bomb_index} {hit_or_miss}")
-                print_board(current_board, predicted_board)
-                
+                if guesses < board_width*board_height*percent_of_board_to_guess:
+                    print_board(current_board)
+                else:
+                    print_board(current_board, predicted_board)
+                    
+            bomb_guesses = np.delete(bomb_guesses, np.where(bomb_guesses == bomb_index))
+            past_predictions.append(bomb_index)
             guesses += 1
         if n_games==1:
             print(f"total hits {hits}")

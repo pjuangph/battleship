@@ -40,8 +40,9 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
         ship_position_indices = np.where(ship_positions == 1)[1]
         bomb_locations = np.arange(board_height*board_width)
         for guess in range(number_of_guesses):
-            bomb_index = np.random.choice(bomb_locations)
-            tgt_board[indx*number_of_guesses+guess,bomb_index] = 1 * (bomb_index in ship_position_indices) + 0 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit
+            tgt_board[indx*number_of_guesses+guess,:] = 2*(ship_positions  == 1) + 1*(ship_positions == 0)
+        for guess in range(number_of_guesses):
+            bomb_index = np.random.choice(bomb_locations)            
             src_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
             bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))     
     return src_board,tgt_board
@@ -53,8 +54,8 @@ def generate_square_subsequent_mask(size):
 
 
 def train():
-    epochs = 5
-    ngames = 10000  # Number of games to generate
+    epochs = 2
+    ngames = 1000  # Number of games to generate
 
     board_height = 10
     board_width = 10
@@ -105,6 +106,7 @@ def train():
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         criterion = nn.CrossEntropyLoss()
         
+        miss_mask = 0.5
         for epoch in range(epochs):
             model.train()
             pbar = tqdm(train_loader)
@@ -114,16 +116,21 @@ def train():
                 tgt_batch = tgt_batch.to(device)
                 optimizer.zero_grad()
                 
-                tgt_mask = generate_square_subsequent_mask(board_height*board_width).to(device)
-
-                output = model(src_batch,tgt_batch,tgt_mask=tgt_mask)
+                percent_of_tgt_to_mask = 0.1 + (miss_mask - 0.1) * torch.rand(1).to(device)
+                is_one = tgt_batch == 1 
+                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_tgt_to_mask
+                tgt_batch_mask = torch.where(is_one & ~random_mask,torch.tensor(0),tgt_batch) 
+                
+                output = model(src_batch,tgt_batch_mask)
                 output_tokens = output.argmax(dim=-1)
 
                 matches = torch.sum(output_tokens == tgt_batch)
                 # print(torch.sum(matches))
-                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch_mask.view(-1).contiguous().long())  # Convert to long
+                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
+                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e}")
                 loss.backward()
                 optimizer.step()
+                
 
             pbar = tqdm(test_loader)
             total_val_loss = 0; num_batches = 0
