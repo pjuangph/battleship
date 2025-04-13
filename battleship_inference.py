@@ -21,10 +21,10 @@ def load_model():
                         dropout=data['model']['dropout']).to(device)
 
     model.load_state_dict(data['model']['state_dict'])
+    model.eval()
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
     optimizer.load_state_dict(data['optimizer'])
-
-    model.eval()
     return model,optimizer
  
 # tgt_start = torch.tensor([[start_token]])  # Start decoding with "<SOS>"
@@ -55,14 +55,11 @@ def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     target_board = torch.zeros((current_board.shape),dtype=torch.long).to(device)
 
     bomb_index = -1
-    with torch.no_grad():  # Disable gradient computation for speedup        
-        another_output = model(current_board,current_board)
-        another_output = torch.argmax(another_output, dim=-1)  # Shape: (batch_size, seq_length)
-        another_output = another_output.cpu().numpy()
-            
+    with torch.no_grad():  # Disable gradient computation for speedup
+        n = torch.sum(current_board == 0)
         memory = model.encoder(current_board)
-        output = target_board
-        for _ in range(5):
+        output = current_board.clone()
+        for _ in range(n):
             output = model.decoder(memory, output)
             output = torch.argmax(output, dim=-1)  # Shape: (batch_size, seq_length)
     predicted_token_ids = output.cpu().numpy()

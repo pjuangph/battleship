@@ -55,9 +55,23 @@ def generate_square_subsequent_mask(size):
     mask = mask.masked_fill(mask == 1, float('-inf'))
     return mask
 
+def apply_random_mask(tgt: torch.Tensor, mask_token: int = 0, mask_prob: float = 0.15):
+    masked_tgt = tgt.clone()
+    labels = tgt.clone()
+
+    # Create random mask
+    mask = torch.rand(tgt.shape, device=tgt.device) < mask_prob
+
+    # Replace input with mask token
+    masked_tgt[mask] = mask_token
+
+    # Optionally, ignore loss on unmasked tokens using ignore_index
+    loss_mask = mask  # use this to mask the loss later
+
+    return masked_tgt, labels, loss_mask
 
 def train():
-    epochs = 1
+    epochs = 10
     ngames = 500  # Number of games to generate
 
     board_height = 10
@@ -66,21 +80,21 @@ def train():
 
     src_vocab_size = board_height*board_width
     tgt_vocab_size = 3 # 0, 1, 2
-    d_model = 256
-    num_heads = 4
-    num_layers = 8
+    d_model = 512
+    num_heads = 8
+    num_layers = 12
     d_ff = 2048
     max_seq_length = board_height*board_width
-    dropout = 0.1
+    dropout = 0.05
     # Instantiate model
     model = Transformer(src_vocab_size=src_vocab_size,
                         tgt_vocab_size=tgt_vocab_size, 
                         d_model=d_model, num_heads=num_heads, num_layers=num_layers, 
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
-
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
+    # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
         print("Generating Games to play")
@@ -108,36 +122,34 @@ def train():
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
-        class_weights = torch.tensor([0.05, 0.45, 0.6])
-        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
-        # criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+        weights = torch.tensor([0.2, 0.5, 1.2]).to(device)         # criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        criterion = nn.CrossEntropyLoss(ignore_index=-100,weight=weights)
         
-        miss_mask = 0.6
         for epoch in range(epochs):
             model.train()
             pbar = tqdm(train_loader)
-            for batch in pbar:
+            for batch in pbar:                
                 src_batch, tgt_batch = batch
                 src_batch = src_batch.to(device)
                 tgt_batch = tgt_batch.to(device)
+
+                mask_ratio = 0.4 * torch.rand(1).item()
+                mask = (torch.rand_like(tgt_batch.float()) < mask_ratio)
+                tgt_batch_masked = tgt_batch.clone()
+                tgt_batch_masked[mask] = -100  # Ignored in loss
+    
                 optimizer.zero_grad()
+                output = model(src_batch, tgt_batch_masked)                
                 
-                percent_of_tgt_to_mask = 0.1 + (miss_mask - 0.1) * torch.rand(1).to(device)
-                is_one = tgt_batch == 1 
-                random_mask = torch.rand_like(tgt_batch.float()) > percent_of_tgt_to_mask
-                tgt_batch_mask = torch.where(is_one & ~random_mask,torch.tensor(0),tgt_batch) 
-                
-                output = model(src_batch,tgt_batch)
-                output_tokens = output.argmax(dim=-1)
-                hits = torch.sum(output_tokens == 2 )
-                
-                matches = torch.sum(output_tokens == tgt_batch)
-                # print(torch.sum(matches))
-                
-                loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits/batch_size:0.2f} Matches {matches/batch_size:0.2f}")
+                loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
                 loss.backward()
                 optimizer.step()
+
+                output_tokens = output.argmax(dim=-1)
+                hits = torch.sum(output_tokens == 2 )
+                matches = torch.sum(output_tokens == tgt_batch_masked)
+                # print(torch.sum(matches))
+                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits:0.2f} Matches {matches/batch_size:0.2f}")
                 
 
             pbar = tqdm(test_loader)
@@ -147,12 +159,17 @@ def train():
                 src_batch, tgt_batch = batch
                 src_batch = src_batch.to(device)
                 tgt_batch = tgt_batch.to(device)
+      
+                output = model(src_batch, tgt_batch)
+                val_loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
 
-                output = model(src_batch,tgt_batch)
-                val_loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
-                total_val_loss += val_loss.item()
+                pred_classes = output.argmax(dim=-1)
+                print(src_batch[0,:])
+                print(pred_classes[0,:])
+
+                total_val_loss += loss.item()
                 num_batches += 1
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {val_loss.item():0.2e}")
+                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {loss.item():0.2e}")
             average_val_loss = total_val_loss / num_batches  # Compute average validation loss
             pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
     

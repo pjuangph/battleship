@@ -127,7 +127,7 @@ class Transformer(nn.Module):
         super(Transformer, self).__init__()
         self.encoder_embedding = nn.Embedding(src_vocab_size, d_model)
         # nn.init.normal_(self.encoder_embedding.weight, mean=0, std=0.1)
-        self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
+        self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model,padding_idx=0)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_model, num_heads, d_ff, dropout) for _ in range(num_layers)])
