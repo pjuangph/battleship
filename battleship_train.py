@@ -32,28 +32,22 @@ def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:L
     Returns:
         Tuple[npt.NDArray,npt.NDArray]: source, target
     """
-    percent_of_src_to_generate = 0.15
-    number_of_guesses = int(board_height * board_width*(1-percent_of_src_to_generate))
+    
+    number_of_guesses = int(board_height * board_width)
     src_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
     tgt_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
     for indx in trange(nboards):
         ship_positions = place_ships(board_height,board_width,ship_sizes)
         ship_position_indices = np.where(ship_positions == 1)[1]
-        bomb_locations = np.arange(board_height*board_width)
-        for guess in range(number_of_guesses):
-            tgt_board[indx*number_of_guesses+guess,:] = 2*(ship_positions  == 1) + 1*(ship_positions == 0)
+        bomb_locations = np.arange(board_height*board_width)       
         
-        for p in range(board_height*board_width-number_of_guesses): # Lets guess 15 % of the board before we begin training 
-            bomb_index = np.random.choice(bomb_locations)            
-            src_board[indx*number_of_guesses,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
+        for guess in range(1,board_height * board_width): # Lets play a game where tgt is always one guess ahead of src             
+            src_board[indx*number_of_guesses+guess,:] = tgt_board[indx*number_of_guesses+guess-1,:]
+            bomb_index = np.random.choice(bomb_locations) 
+            tgt_board[indx*number_of_guesses+guess,:] = tgt_board[indx*number_of_guesses+guess-1,:]
+            tgt_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
             bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))
-            
-        for guess in range(1,number_of_guesses):
-            src_board[indx*number_of_guesses+guess,:] = src_board[indx*number_of_guesses+guess-1,:]
-            bomb_index = np.random.choice(bomb_locations)            
-            src_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
-            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))   
-          
+        
     return src_board,tgt_board
     
 def generate_square_subsequent_mask(size):
@@ -72,9 +66,9 @@ def train():
 
     src_vocab_size = board_height*board_width
     tgt_vocab_size = 3 # 0, 1, 2
-    d_model = 512
-    num_heads = 8
-    num_layers = 12
+    d_model = 256
+    num_heads = 4
+    num_layers = 8
     d_ff = 2048
     max_seq_length = board_height*board_width
     dropout = 0.1
@@ -114,11 +108,11 @@ def train():
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
-        class_weights = torch.tensor([0.05, 0.05, 0.9])
-        
+        class_weights = torch.tensor([0.05, 0.45, 0.6])
         criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        # criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
-        miss_mask = 0.5
+        miss_mask = 0.6
         for epoch in range(epochs):
             model.train()
             pbar = tqdm(train_loader)
@@ -135,12 +129,13 @@ def train():
                 
                 output = model(src_batch,tgt_batch)
                 output_tokens = output.argmax(dim=-1)
-
+                hits = torch.sum(output_tokens == 2 )
+                
                 matches = torch.sum(output_tokens == tgt_batch)
                 # print(torch.sum(matches))
                 
                 loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt_batch.view(-1).contiguous().long())  # Convert to long
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e}")
+                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits/batch_size:0.2f} Matches {matches/batch_size:0.2f}")
                 loss.backward()
                 optimizer.step()
                 
