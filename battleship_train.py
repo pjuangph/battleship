@@ -192,7 +192,7 @@ def train():
 
                 output_tokens = output.argmax(dim=-1)
                 hits = torch.sum(output_tokens == 2 )
-                matches = torch.sum(output_tokens == tgt_batch_masked)
+                matches = torch.sum(output_tokens == tgt_batch)
                 # print(torch.sum(matches))
                 pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits:0.2f} Matches {matches/batch_size:0.2f}")
                 
