@@ -118,9 +118,9 @@ def train():
 
     src_vocab_size = 3
     tgt_vocab_size = 3 # 0, 1, 2
-    d_model = 1024
-    num_heads = 8
-    num_layers = 12
+    d_model = 512
+    num_heads = 4
+    num_layers = 4
     d_ff = 2048
     max_seq_length = board_height*board_width
     dropout = 0.1
@@ -156,7 +156,7 @@ def train():
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 16
+        batch_size = 64
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
@@ -166,8 +166,15 @@ def train():
         class_weights = 1.0 / (class_counts + 1e-6)
         class_weights = class_weights / class_weights.sum()
         class_weights = class_weights.to(device)
-        criterion = nn.CrossEntropyLoss(weight=class_weights,ignore_index=0)
+        criterion_train = nn.CrossEntropyLoss(weight=class_weights,ignore_index=0)
         
+        all_targets = tgt_test_tensor.view(-1)
+        class_counts = torch.bincount(all_targets, minlength=3).float()
+        class_weights = 1.0 / (class_counts + 1e-6)
+        class_weights = class_weights / class_weights.sum()
+        class_weights = class_weights.to(device)
+        criterion_val = nn.CrossEntropyLoss(weight=class_weights,ignore_index=0)
+
         for epoch in range(epochs):
             model.train()
             pbar = tqdm(train_loader)
@@ -179,14 +186,14 @@ def train():
                 tgt_batch = tgt_batch.to(device)
 
                 guessed_mask = (tgt_batch != 0)
-                random_mask = (torch.rand_like(tgt_batch.float()) > 0.2).to(device)
+                random_mask = (torch.rand_like(tgt_batch.float()) > 0.9).to(device)
                 final_mask = guessed_mask & random_mask
                 tgt_batch_masked = tgt_batch.clone()
                 tgt_batch_masked[~final_mask] = 0
                 
                 output = model(src_batch, tgt_batch_masked)                
                 
-                loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
+                loss = criterion_train(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
                 loss.backward()
                 optimizer.step()
 
@@ -206,7 +213,7 @@ def train():
                 tgt_batch = tgt_batch.to(device)
       
                 output = model(src_batch, tgt_batch)
-                val_loss = criterion(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
+                val_loss = criterion_val(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
 
                 pred_classes = output.argmax(dim=-1)
                 # print(src_batch[0,:])
