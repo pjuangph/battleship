@@ -109,7 +109,7 @@ def apply_random_mask(tgt: torch.Tensor, mask_token: int = 0, mask_prob: float =
     return masked_tgt, labels, loss_mask
 
 def train():
-    epochs = 5
+    epochs = 50
     ngames = 2000  # Number of games to generate
 
     board_height = 10
@@ -119,8 +119,8 @@ def train():
     src_vocab_size = 3
     tgt_vocab_size = 3 # 0, 1, 2
     d_model = 512
-    num_heads = 4
-    num_layers = 4
+    num_heads = 16
+    num_layers = 8
     d_ff = 2048
     max_seq_length = board_height*board_width
     dropout = 0.1
@@ -130,8 +130,8 @@ def train():
                         d_model=d_model, num_heads=num_heads, num_layers=num_layers, 
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
-    # optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
