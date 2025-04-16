@@ -8,24 +8,6 @@ from tqdm import trange
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def load_model():
-    data = torch.load('data/trained_model.pth')
-
-    model = Transformer(src_vocab_size=data['model']['src_vocab_size'],
-                        tgt_vocab_size=data['model']['tgt_vocab_size'],
-                        d_model=data['model']['d_model'],
-                        num_heads=data['model']['num_heads'],
-                        num_layers=data['model']['num_layers'],
-                        d_ff=data['model']['d_ff'],
-                        max_seq_length=data['model']['max_seq_length'],
-                        dropout=data['model']['dropout']).to(device)
-
-    model.load_state_dict(data['model']['state_dict'])
-    model.eval()
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
-    optimizer.load_state_dict(data['optimizer'])
-    return model,optimizer
  
 # tgt_start = torch.tensor([[start_token]])  # Start decoding with "<SOS>"
 # output = transformer(src, tgt_start)  # First decoder step

@@ -19,6 +19,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 torch.cuda.empty_cache()
+SHIP_SIZES = [2,3,3,4,5]
+board_height = 10
+board_width = 10
 
 def generate_game_data_steps(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
     """Generates dummy game data for training 
@@ -108,19 +111,66 @@ def apply_random_mask(tgt: torch.Tensor, mask_token: int = 0, mask_prob: float =
 
     return masked_tgt, labels, loss_mask
 
-def train():
-    epochs = 50
-    ngames = 2000  # Number of games to generate
+def generate_games(ngames:int=2000,board_height:int=10,board_width:int=10,ship_sizes:List[int]=SHIP_SIZES):
+    """Generate Games 
 
-    board_height = 10
-    board_width = 10
-    SHIP_SIZES = [2,3,3,4,5]
+    Args:
+        ngames (int, optional): number of games to generate. Defaults to 2000.
+        board_height (int, optional): board height. Defaults to 10.
+        board_width (int, optional): board width. Defaults to 10.
+        ship_sizes (List[int], optional): ship sizes to use. Defaults to SHIP_SIZES.
+    """
+    if (not osp.exists("data/training_data.pickle")):
+        print("Generating Games to play")
+        src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
+
+        os.makedirs('data',exist_ok=True)
+        data = {'src':src,'tgt':tgt}
+        pickle.dump(data,open('data/training_data.pickle','wb'))
+    else:
+        data = pickle.load(open('data/training_data.pickle','rb'))
+
+
+def load_model():
+    path = 'data'
+    files = [
+        os.path.join(path, f)
+        for f in os.listdir(path)
+        if f.endswith('.pth') and os.path.isfile(os.path.join(path, f))
+    ]
+    filename = max(files, key=os.path.getmtime)
+
+    data = torch.load(filename)
+
+    model = Transformer(src_vocab_size=data['model']['src_vocab_size'],
+                        tgt_vocab_size=data['model']['tgt_vocab_size'],
+                        d_model=data['model']['d_model'],
+                        num_heads=data['model']['num_heads'],
+                        num_layers=data['model']['num_layers'],
+                        d_ff=data['model']['d_ff'],
+                        max_seq_length=data['model']['max_seq_length'],
+                        dropout=data['model']['dropout']).to(device)
+
+    model.load_state_dict(data['model']['state_dict'])
+    model.eval()
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
+    optimizer.load_state_dict(data['optimizer'])
+    try:
+        epochs = data['model']['epochs']
+    except:
+        epochs = 0
+    print(f"Loaded model with {epochs} epochs")
+    return model,optimizer,epochs
+
+def train(resume_training:bool=False):
+    epochs = 100
 
     src_vocab_size = 3
     tgt_vocab_size = 3 # 0, 1, 2
     d_model = 512
-    num_heads = 16
-    num_layers = 8
+    num_heads = 4
+    num_layers = 2
     d_ff = 2048
     max_seq_length = board_height*board_width
     dropout = 0.1
@@ -135,14 +185,12 @@ def train():
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
-        print("Generating Games to play")
-        src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
+        generate_games(ngames=5000,board_height=board_height,board_width=board_width,ship_sizes=SHIP_SIZES)
+    
+    data = pickle.load(open('data/training_data.pickle','rb'))
 
-        os.makedirs('data',exist_ok=True)
-        data = {'src':src,'tgt':tgt}
-        pickle.dump(data,open('data/training_data.pickle','wb'))
-    else:
-        data = pickle.load(open('data/training_data.pickle','rb'))
+    if resume_training:
+        model,optimizer,current_epochs = load_model()
 
 
     def train_loop(src:npt.NDArray,tgt:npt.NDArray):
@@ -198,8 +246,8 @@ def train():
                 optimizer.step()
 
                 output_tokens = output.argmax(dim=-1)
-                hits = torch.sum(output_tokens == 2 )
-                matches = torch.sum(output_tokens == tgt_batch)
+                hits = torch.sum(output_tokens == 2).detach().cpu() 
+                matches = torch.sum(output_tokens == tgt_batch).detach().cpu()
                 # print(torch.sum(matches))
                 pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits:0.2f} Matches {matches/batch_size:0.2f}")
                 
@@ -245,11 +293,14 @@ def train():
         'num_layers': num_layers,
         'd_ff': d_ff,
         'max_seq_length': max_seq_length,
-        'dropout': dropout
+        'dropout': dropout,
+        'epochs':epochs
     }
     data['optimizer'] = optimizer.state_dict()
-    torch.save(data, "data/trained_model.pth")
-    torch.save(data, "data/trained_model.bak.pth")
+    torch.save(data, f"data/trained_model-{epochs+current_epochs}.pth")
+    if not resume_training:
+        torch.save(data, "data/trained_model.bak.pth")
 
 if __name__ =="__main__":
-    train()
+    # generate_game_data(10000,board_height,board_width,SHIP_SIZES)
+    train(resume_training=False)
