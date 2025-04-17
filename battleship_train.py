@@ -16,6 +16,7 @@ from tqdm import trange,tqdm
 import numpy.typing as npt  
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
+from torch.amp import autocast, GradScaler
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 torch.cuda.empty_cache()
@@ -23,36 +24,6 @@ SHIP_SIZES = [2,3,3,4,5]
 board_height = 10
 board_width = 10
 
-def generate_game_data_steps(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
-    """Generates dummy game data for training 
-
-    Args:
-        nboards (int): number boards to generate
-        board_height (int): board height in units
-        board_width (int): board width in units
-        ship_sizes (List[int]): Array of ship sizes e.g. [2,3,3,4,5]
-        src_blank (float): percent of source board to blank out 
-
-    Returns:
-        Tuple[npt.NDArray,npt.NDArray]: source, target
-    """
-    
-    number_of_guesses = int(board_height * board_width)
-    src_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
-    tgt_board = np.zeros((nboards*number_of_guesses,board_height*board_width))
-    for indx in trange(nboards):
-        ship_positions = place_ships(board_height,board_width,ship_sizes)
-        ship_position_indices = np.where(ship_positions == 1)[1]
-        bomb_locations = np.arange(board_height*board_width)       
-        
-        for guess in range(1,board_height * board_width): # Lets play a game where tgt is always one guess ahead of src             
-            src_board[indx*number_of_guesses+guess,:] = tgt_board[indx*number_of_guesses+guess-1,:]
-            bomb_index = np.random.choice(bomb_locations) 
-            tgt_board[indx*number_of_guesses+guess,:] = tgt_board[indx*number_of_guesses+guess-1,:]
-            tgt_board[indx*number_of_guesses+guess,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)
-            bomb_locations = np.delete(bomb_locations, np.where(bomb_locations == bomb_index))
-        
-    return src_board,tgt_board
 
 def generate_game_data(nboards:int,board_height:int,board_width:int,ship_sizes:List[int]) -> Tuple[npt.NDArray,npt.NDArray]:
     """Generates dummy game data for training 
@@ -194,7 +165,10 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
 
     if resume_training:
         model,optimizer,current_epochs = load_model()
+    else:
+        current_epochs = 0
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+    scaler = GradScaler(device=device)
 
 
     def train_loop(src:npt.NDArray,tgt:npt.NDArray):
@@ -208,7 +182,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 100
+        batch_size = 64
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
@@ -242,13 +216,13 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
                 final_mask = guessed_mask & random_mask
                 tgt_batch_masked = tgt_batch.clone()
                 tgt_batch_masked[~final_mask] = 0
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    output = model(src_batch, tgt_batch_masked) 
+                    loss = criterion_train(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
                 
-                output = model(src_batch, tgt_batch_masked)                
-                
-                loss = criterion_train(output.view(-1, tgt_vocab_size), tgt_batch.view(-1))
-                loss.backward()
-                optimizer.step()
-
                 output_tokens = output.argmax(dim=-1)
                 hits = torch.sum(output_tokens == 2).detach().cpu() 
                 matches = torch.sum(output_tokens == tgt_batch).detach().cpu()
@@ -305,5 +279,5 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     print("Train Loop")
     train_loop(src,tgt)
 if __name__ =="__main__":
-    generate_game_data(20000,board_height,board_width,SHIP_SIZES)
+    # generate_games(10000,board_height,board_width,SHIP_SIZES)
     train(resume_training=False)
