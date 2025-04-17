@@ -120,15 +120,12 @@ def generate_games(ngames:int=2000,board_height:int=10,board_width:int=10,ship_s
         board_width (int, optional): board width. Defaults to 10.
         ship_sizes (List[int], optional): ship sizes to use. Defaults to SHIP_SIZES.
     """
-    if (not osp.exists("data/training_data.pickle")):
-        print("Generating Games to play")
-        src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
+    print("Generating Games to play")
+    src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
 
-        os.makedirs('data',exist_ok=True)
-        data = {'src':src,'tgt':tgt}
-        pickle.dump(data,open('data/training_data.pickle','wb'))
-    else:
-        data = pickle.load(open('data/training_data.pickle','rb'))
+    os.makedirs('data',exist_ok=True)
+    data = {'src':src,'tgt':tgt}
+    pickle.dump(data,open('data/training_data.pickle','wb'))
 
 
 def load_model():
@@ -191,7 +188,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
-        generate_games(ngames=5000,board_height=board_height,board_width=board_width,ship_sizes=SHIP_SIZES)
+        generate_games(ngames=20000,board_height=board_height,board_width=board_width,ship_sizes=SHIP_SIZES)
     
     data = pickle.load(open('data/training_data.pickle','rb'))
 
@@ -308,5 +305,5 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     print("Train Loop")
     train_loop(src,tgt)
 if __name__ =="__main__":
-    # generate_game_data(20000,board_height,board_width,SHIP_SIZES)
+    generate_game_data(20000,board_height,board_width,SHIP_SIZES)
     train(resume_training=False)
