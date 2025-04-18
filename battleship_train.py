@@ -155,7 +155,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
                         d_ff=d_ff, 
                         max_seq_length=max_seq_length, dropout=dropout).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
-    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9)
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
@@ -167,8 +167,9 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
         model,optimizer,current_epochs = load_model()
     else:
         current_epochs = 0
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     scaler = GradScaler(device=device)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
 
 
     def train_loop(src:npt.NDArray,tgt:npt.NDArray):
@@ -182,7 +183,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
         train_dataset = TensorDataset(src_train_tensor, tgt_train_tensor)       # Create a dataset
         test_dataset = TensorDataset(src_test_tensor, tgt_test_tensor)       # Create a dataset
 
-        batch_size = 64
+        batch_size = 128
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
         
@@ -227,7 +228,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
                 hits = torch.sum(output_tokens == 2).detach().cpu() 
                 matches = torch.sum(output_tokens == tgt_batch).detach().cpu()
                 # print(torch.sum(matches))
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Hits match {hits:0.2f} Matches {matches/batch_size:0.2f}")
+                pbar.set_description(f"Epoch: {epoch+current_epochs:d} Train Loss: {loss.item():0.2e} Hits match {hits/batch_size:0.2f} Matches {matches/batch_size:0.2f}")
                 
 
             pbar = tqdm(test_loader)
@@ -247,9 +248,9 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
 
                 total_val_loss += val_loss.item()
                 num_batches += 1
-                pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {val_loss.item():0.2e}")
+                pbar.set_description(f"Epoch: {epoch+current_epochs:d} Train Loss: {loss.item():0.2e} Val Loss: {val_loss.item():0.2e}")
             average_val_loss = total_val_loss / num_batches  # Compute average validation loss
-            pbar.set_description(f"Epoch: {epoch:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
+            pbar.set_description(f"Epoch: {epoch+current_epochs:d} Train Loss: {loss.item():0.2e} Val Loss: {average_val_loss:0.2e}")
             scheduler.step()
             if (epoch % save_every_n_epoch == 0) or (epoch == epochs-1):
                 # Save the model
@@ -280,4 +281,4 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     train_loop(src,tgt)
 if __name__ =="__main__":
     # generate_games(10000,board_height,board_width,SHIP_SIZES)
-    train(resume_training=False)
+    train(resume_training=True)
