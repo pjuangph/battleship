@@ -74,7 +74,9 @@ def auto_game(n_games:int=1,train:bool=False):
     ship_sizes = [2,3,3,4,5]
     board_height = 10
     board_width = 10
-    model,optimizer,_ = load_model()
+    model,optimizer,_,data = load_model()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
     model = model.to(device)
     pbar = trange(n_games)
     for game in pbar:
@@ -103,7 +105,10 @@ def auto_game(n_games:int=1,train:bool=False):
         # 0 no bomb, 1 bomb, 2 hit
         # Store all the games played 
         games = np.zeros(shape=(board_height*board_width, board_height, board_width), dtype=np.int64)
-        percent_of_board_to_guess = 0.10
+        game_index = 0
+        percent_of_board_to_guess = 0.15
+        current_board = torch.from_numpy(np.zeros(shape=(board_height,board_width), dtype=np.int64)).type(torch.long)  # 0 no bomb, 1 bomb, 2 hit
+
         while guesses < board_height*board_width and hits < sum(ship_sizes):
             # Make the guess
             if guesses < board_width*board_height*percent_of_board_to_guess:
@@ -120,7 +125,7 @@ def auto_game(n_games:int=1,train:bool=False):
                     bomb_index = np.random.choice(bomb_locations)
                     human_readable_bomb_index = bomb_index_to_human_readable(bomb_index,board_width)
             # Test the guess
-            current_board = torch.tensor(games[guesses,:,:].reshape((1,board_height*board_width))).to(device)
+            current_board = current_board.reshape((1,board_height*board_width)).to(device)
             current_board[0,bomb_index] = 2 * (bomb_index in ship_position_indices) + 1 * (bomb_index not in ship_position_indices)  # 0 no bomb, 1 bomb, 2 hit                    
                                      
             if (current_board[0,bomb_index] == 2):
@@ -139,30 +144,35 @@ def auto_game(n_games:int=1,train:bool=False):
                     
             bomb_guesses = np.delete(bomb_guesses, np.where(bomb_guesses == bomb_index))
             past_predictions.append(bomb_index)
+            if guesses > board_width*board_height*percent_of_board_to_guess:
+                games[game_index,:,:] = current_board.detach().cpu().numpy()
+                game_index+=1
             guesses += 1
 
-            games[guesses,:,:] = current_board
         if n_games==1:
             print(f"total hits {hits}")
             print_board(current_board.reshape(board_height,board_width)) 
                        
-    if train: # Train the board on the game it just played 
-        src = torch.tensor(games[:guesses-1,:,:])
-        tgt = torch.where(current_board == 0, torch.tensor(1).to(device), current_board)
-        
-        model.train()
-        optimizer.zero_grad()
-        output = model(current_board,current_board)
-        loss = criterion(output.contiguous().view(-1, tgt_vocab_size), current_board.view(-1).contiguous().long())  # Convert to long
-        loss.backward()
-        optimizer.step()
-        pbar.set_description(f"Game: {game:d} Guess: {guesses:d} Train Loss: {loss.item():0.2e}")
+        if train: # Train the board on the game it just played 
+            src = torch.tensor(games[:game_index-1,:,:]).reshape(game_index-1,board_height*board_width).to(device)
+            tgt = src.clone()
+            tgt[:,:] = torch.where(current_board == 0, torch.tensor(1), current_board).reshape(1,board_height*board_width).to(device)
 
-        data = torch.load('data/trained_model.pth')
+            print(f'Training on {game_index-1} games')        
+            model.train()
+            optimizer.zero_grad()
+            output = model(src,tgt)
+            loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt.view(-1).contiguous().long())  # Convert to long
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+    if train: # Save the model state as auto_game
+        print(f'Train Loss: {loss.item():0.2e}')
         data['model']['state_dict'] = model.state_dict()
-        torch.save(data, "data/trained_model.pth")
+        data['optimizer'] = optimizer.state_dict()
+        torch.save(data, "data/trained_model_auto_game.pth")
         
 if __name__=="__main__":
     # game_helper()
-    auto_game(n_games=100, train=True)
+    auto_game(n_games=5000, train=True)
     # auto_game()
