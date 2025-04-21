@@ -75,6 +75,8 @@ def auto_game(n_games:int=1,train:bool=False):
     board_height = 10
     board_width = 10
     model,optimizer,_,data = load_model()
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = 1e-4
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     model = model.to(device)
@@ -165,7 +167,8 @@ def auto_game(n_games:int=1,train:bool=False):
             loss = criterion(output.contiguous().view(-1, tgt_vocab_size), tgt.view(-1).contiguous().long())  # Convert to long
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            if (game%50 == 0):
+                scheduler.step()
     if train: # Save the model state as auto_game
         print(f'Train Loss: {loss.item():0.2e}')
         data['model']['state_dict'] = model.state_dict()
@@ -174,5 +177,5 @@ def auto_game(n_games:int=1,train:bool=False):
         
 if __name__=="__main__":
     # game_helper()
-    auto_game(n_games=5000, train=True)
+    auto_game(n_games=1000, train=True)
     # auto_game()
