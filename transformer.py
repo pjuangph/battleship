@@ -127,42 +127,37 @@ class Transformer(nn.Module):
         super(Transformer, self).__init__()
         self.encoder_embedding = nn.Embedding(src_vocab_size, d_model)
         # nn.init.normal_(self.encoder_embedding.weight, mean=0, std=0.1)
-        self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
+        self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model,padding_idx=0)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_model, num_heads, d_ff, dropout) for _ in range(num_layers)])
         self.decoder_layers = nn.ModuleList([DecoderLayer(d_model, num_heads, d_ff, dropout) for _ in range(num_layers)])
 
-        self.fc = nn.Linear(d_model, tgt_vocab_size)
+        self.fc_decoder = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
-    def encode(self, src: torch.Tensor):
+    def encoder(self, src: torch.Tensor, src_mask: torch.Tensor = None):
         """Encoder only model
 
         Args:
             src (torch.Tensor): Input current map as a Tensor [batch, boardheight*boardwidth]
-
+            src_mask (torch.Tensor, optional): Mask for the input. Defaults to None.
         Returns:
             Tensor: Probabilities shaped [batch_size, boardheight*boardwidth]
         """
-        src_mask = (src >-1).unsqueeze(1).unsqueeze(2)     # Mask out the misses
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
             enc_output = enc_layer(enc_output, src_mask)
-        output = self.fc(enc_output)
-        output = output.view(output.size(0), output.size(1)) # Reshape to [batch_size, boardheight*boardwidth]
-        probabilities = nn.functional.softmax(output,dim=-1) # Softmax is applied to obtain probabilities
-        return probabilities
+        return enc_output
 
-    def decode(self, tgt, src, enc_output):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+    def decoder(self, enc_output,tgt, src_mask=None, tgt_mask=None):
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
         dec_output = tgt_embedded
         for dec_layer in self.decoder_layers:
-            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)      
-        return dec_output
+            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
+        output = self.fc_decoder(dec_output)
+        return output
     
     def generate_mask(self, src, tgt):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
@@ -171,10 +166,27 @@ class Transformer(nn.Module):
         nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
         tgt_mask = tgt_mask & nopeak_mask
         return src_mask, tgt_mask
-
+    
+    
+    def generate_random_mask(self, src, tgt, p:float=0.15):
+        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        tgt_mask = (tgt != 1).unsqueeze(1).unsqueeze(3)
+        
+        # Apply random masking
+        random_src_mask = (torch.rand_like(src_mask.float()) > p).bool()
+        random_tgt_mask = (torch.rand_like(tgt_mask.float()) > p).bool()
+        
+        src_mask = src_mask & random_src_mask
+        tgt_mask = tgt_mask & random_tgt_mask
+        
+        seq_length = tgt.size(1)
+        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length,device=tgt.device), diagonal=1)).bool()
+        tgt_mask = tgt_mask & nopeak_mask
+        
+        return src_mask, tgt_mask
 
     def forward(self, src, tgt):
-        src_mask, tgt_mask = self.generate_mask(src, tgt)
+        src_mask = None; tgt_mask = None
         src_embedded = self.dropout(self.positional_encoding(self.encoder_embedding(src)))
         tgt_embedded = self.dropout(self.positional_encoding(self.decoder_embedding(tgt)))
 
@@ -186,5 +198,5 @@ class Transformer(nn.Module):
         for dec_layer in self.decoder_layers:
             dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
 
-        output = self.fc(dec_output)
+        output = self.fc_decoder(dec_output)
         return output
