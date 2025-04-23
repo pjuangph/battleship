@@ -28,6 +28,22 @@ def bomb_index_to_human_readable(bomb_index:int,board_width:int)->str:
     row_str = chr(col+65)
     return f"{row_str}-{row+1}"
 
+def human_readable_to_bomb_index(human_readable:str, board_width:int) -> int:
+    """Convert human-readable format to bomb index"""
+    
+    # Split the input string into row and column parts
+    col_str, row_str = human_readable.split('-')
+    
+    # Convert the row letter (e.g. 'J') to a column index
+    col = ord(col_str.upper()) - 65
+    
+    # Convert the row number (e.g. '2') to a zero-based index
+    row = int(row_str) - 1
+    
+    # Calculate the bomb index from row and column
+    bomb_index = row * board_width + col
+    return bomb_index
+
 def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
     board_width  = current_board.shape[0]
     board_length = current_board.shape[1]
@@ -80,15 +96,29 @@ def ai_helper():
         bomb_guesses = np.delete(bomb_guesses, np.where(bomb_guesses == bomb_index))
         past_predictions.append(bomb_index)
 
-        print(f"AI Guess: {human_readable_bomb_index}")
-        hit = input("Hit (y) or (n): ")
-        hit = 1 if hit == 'y' else 0
-        # Update board
-        if hit == 1:
-            current_board[0,bomb_index] = 2
-            hits += 1
-        else:
-            current_board[0,bomb_index] = 1
+        # Loop until the user enters a valid input
+        while True:
+            print(f"AI Guess: {human_readable_bomb_index}")
+            guess = input("Enter guess or hit [Enter] for AI Guess: ").lower()
+            if guess == "":
+                guess = human_readable_bomb_index
+            else:
+                guess = guess.upper()
+            bomb_index = human_readable_to_bomb_index(guess,board_width)
+            
+            hit = input("Hit (y) or (n): ").lower()  # Convert to lowercase for consistency
+
+            if hit == 'y' or hit == 'n':
+                hit = 1 if hit == 'y' else 0
+                # Update board
+                if hit == 1:
+                    current_board[0, bomb_index] = 2
+                    hits += 1
+                else:
+                    current_board[0, bomb_index] = 1
+                break  # Exit the loop once a valid input is entered
+            else:
+                print("Invalid input. Please enter 'y' for hit or 'n' for miss.")
         current_board[0,bomb_index] = 2 if hit else 1
         guesses += 1
 
@@ -200,4 +230,5 @@ def auto_game(n_games:int=1,train:bool=False):
 if __name__=="__main__":
     ai_helper()
     # auto_game(n_games=1000, train=True)
-    # auto_game()
+    # auto_game(n_games=1,train=False)
+    

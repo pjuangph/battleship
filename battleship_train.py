@@ -18,7 +18,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 from torch.amp import autocast, GradScaler
 
-device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 torch.cuda.empty_cache()
 SHIP_SIZES = [2,3,3,4,5]
 board_height = 10
@@ -108,7 +108,7 @@ def load_model():
     ]
     filename = max(files, key=os.path.getmtime)
 
-    data = torch.load(filename)
+    data = torch.load(filename,map_location=device)
 
     model = Transformer(src_vocab_size=data['model']['src_vocab_size'],
                         tgt_vocab_size=data['model']['tgt_vocab_size'],
