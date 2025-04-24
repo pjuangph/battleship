@@ -7,8 +7,7 @@ from ship_placements import place_ships, print_board
 from tqdm import trange
 from battleship_train import load_model
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
  
 # tgt_start = torch.tensor([[start_token]])  # Start decoding with "<SOS>"
 # output = transformer(src, tgt_start)  # First decoder step
