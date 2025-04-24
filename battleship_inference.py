@@ -7,7 +7,7 @@ from ship_placements import place_ships, print_board
 from tqdm import trange
 from battleship_train import load_model
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 def bomb_index_to_human_readable(bomb_index:int,board_width:int)->str:
     """Convert bomb index to human-readable format"""
@@ -236,7 +236,7 @@ def auto_game(n_games:int=1,train:bool=False):
         torch.save(data, "data/trained_model_auto_game.pth")
         
 if __name__=="__main__":
-    # ai_helper()
+    ai_helper()
     # auto_game(n_games=1000, train=True)
-    auto_game(n_games=1,train=False)
+    # auto_game(n_games=1,train=False)
     
