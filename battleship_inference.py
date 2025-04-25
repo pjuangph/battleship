@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import torch
 from transformer import Transformer
 import numpy as np 
@@ -8,42 +8,45 @@ from tqdm import trange
 from battleship_train import load_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
- 
-# tgt_start = torch.tensor([[start_token]])  # Start decoding with "<SOS>"
-# output = transformer(src, tgt_start)  # First decoder step
 
-# for _ in range(max_len):  # Generate tokens until "<EOS>" appears
-#     next_token = output[:, -1]  # Get last generated token
-#     tgt_start = torch.cat([tgt_start, next_token], dim=1)  # Append new token
-#     output = transformer(src, tgt_start)  # Decode again
-#     if next_token == eos_token:
-#         break
+def bomb_index_to_human_readable(bomb_index: int, board_width: int) -> str:
+    """Convert bomb index to human-readable format for transposed boards (e.g., 4 -> A-4)"""
+    row = bomb_index // board_width   # A=0, B=1, ...
+    col = bomb_index % board_width    # 4th column is 3 -> 4 when displayed
 
-def bomb_index_to_human_readable(bomb_index:int,board_width:int)->str:
-    """Convert bomb index to human-readable format"""
-    row = bomb_index // board_width
-    col = int(bomb_index - row * board_width)
-    # convert col to letter
-    row_str = chr(col+65)
-    return f"{row_str}-{row+1}"
+    row_str = chr(row + 65)           # 0 -> A, 1 -> B, ...
+    return f"{row_str}-{col + 1}"     # Convert to 1-based index for human-readable
 
-def human_readable_to_bomb_index(human_readable:str, board_width:int) -> int:
-    """Convert human-readable format to bomb index"""
+
+def human_readable_to_bomb_index(human_readable: str, board_width: int) -> int:
+    """Convert human-readable format to bomb index for transposed boards (e.g., A-4 -> 4)"""
     
-    # Split the input string into row and column parts
+    # Split input like 'A-4'
     col_str, row_str = human_readable.split('-')
-    
-    # Convert the row letter (e.g. 'J') to a column index
-    col = ord(col_str.upper()) - 65
-    
-    # Convert the row number (e.g. '2') to a zero-based index
-    row = int(row_str) - 1
-    
-    # Calculate the bomb index from row and column
-    bomb_index = row * board_width + col
+
+    # In transposed mode: letter (A) is the row (0), number (4) is the column (3)
+    row = ord(col_str.upper()) - 65         # A -> 0
+    col = int(row_str) - 1                  # 4 -> 3
+
+    # Transposed logic: index = column + row * board_width
+    bomb_index = col + row * board_width
     return bomb_index
 
-def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->str:
+def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->Tuple[np.ndarray,np.ndarray]:
+    """Calls the model and returns the bomb indices
+    This function is used to run inference on the model and get the bomb indices.
+    It takes the current board as input and returns the bomb indices.
+
+    Args:
+        model (torch.nn.Module): _Transformer model
+        current_board (torch.Tensor): current board 
+
+    Returns:
+        Tuple containing:
+            - bomb_indices (np.ndarray): Indices of the bombs
+            - predicted_board (np.ndarray): Predicted board
+
+    """
     board_width  = current_board.shape[0]
     board_length = current_board.shape[1]
     
@@ -69,7 +72,7 @@ def ai_helper():
     board_height = 10
     board_width = 10
     model,_,_,_ = load_model()
-    percent_of_board_to_guess = 0.15
+    percent_of_board_to_guess = 0.10
 
     hits = 0 
     guesses = 0
@@ -97,27 +100,32 @@ def ai_helper():
 
         # Loop until the user enters a valid input
         while True:
-            print(f"AI Guess: {human_readable_bomb_index}")
-            guess = input("Enter guess or hit [Enter] for AI Guess: ").lower()
-            if guess == "":
-                guess = human_readable_bomb_index
-            else:
-                guess = guess.upper()
-            bomb_index = human_readable_to_bomb_index(guess,board_width)
-            
-            hit = input("Hit (y) or (n): ").lower()  # Convert to lowercase for consistency
-
-            if hit == 'y' or hit == 'n':
-                hit = 1 if hit == 'y' else 0
-                # Update board
-                if hit == 1:
-                    current_board[0, bomb_index] = 2
-                    hits += 1
+            try:
+                print(f"AI Guess: {human_readable_bomb_index}")
+                guess = input("Enter guess or hit [Enter] for AI Guess: ").lower()
+                if guess == "":
+                    guess = human_readable_bomb_index
                 else:
-                    current_board[0, bomb_index] = 1
-                break  # Exit the loop once a valid input is entered
-            else:
-                print("Invalid input. Please enter 'y' for hit or 'n' for miss.")
+                    guess = guess.upper()
+                
+                bomb_index = human_readable_to_bomb_index(guess,board_width)
+                hit = input("Hit (y) or (n): ").lower()  # Convert to lowercase for consistency
+
+                if hit == 'y' or hit == 'n':
+                    hit = 1 if hit == 'y' else 0
+                    # Update board
+                    if hit == 1:
+                        current_board[0, bomb_index] = 2
+                        hits += 1
+                    else:
+                        current_board[0, bomb_index] = 1
+                    break  # Exit the loop once a valid input is entered
+                else:
+                    print("Invalid input. Please enter 'y' for hit or 'n' for miss.")
+            except ValueError:
+                print("Invalid input. Please enter a valid guess (e.g., A1, B2, etc.).")
+                continue
+            
         current_board[0,bomb_index] = 2 if hit else 1
         guesses += 1
 
