@@ -37,34 +37,28 @@ def place_ships(board_height:int=10,board_width:int=10,ship_sizes:List[int]=[2,3
     return np.reshape(board, (1, board_size)) 
 
 def print_board(board: npt.NDArray, predicted_board: npt.NDArray = None):
-    """Print the transposed board with columns as rows and rows as columns."""
-    board_T = board.T
-    predicted_T = predicted_board.T if predicted_board is not None else None
+    """Print the board with proper alignment."""
+    
+    cols = board.shape[1]  # Number of columns
+    col_width = 1  # Space for each number
+    separator = " | "  # Column separator
 
-    rows = board_T.shape[0]  # Was columns, now rows after transpose
-    col_width = 1
-    separator = " | "
+    # Header row
+    column_numbers = "     " + separator.join(f"{chr(65+i):{col_width}}" for i in range(cols))
+    top_border = "  " + "-" * (cols * (col_width + 3) - 1)
 
-    # Header (letters become numbers now)
-    header_row = "     " + separator.join(f"{i+1:{col_width}}" for i in range(board_T.shape[1]))
-    top_border = "  " + "-" * (board_T.shape[1] * (col_width + 3) - 1)
-
-    if predicted_T is not None:
-        header_row += "          " + separator.join(f"{i+1:{col_width}}" for i in range(predicted_T.shape[1]))
-        top_border += "      " + "-" * (predicted_T.shape[1] * (col_width + 3) - 1)
-
+    if predicted_board is not None:
+        column_numbers += "           " + separator.join(f"{chr(65+i):{col_width}}" for i in range(predicted_board.shape[1]))
+        top_border += "      " + "-" * (predicted_board.shape[1] * (col_width + 3) - 1)
     print("Current Board \t\t\t\t\t Predicted Board")
-    print(header_row)
+    print(column_numbers)
     print(top_border)
 
-    # Each "row" is now a column label (A to J)
-    for i, row in enumerate(board_T):
-        row_label = chr(65 + i)  # A, B, C, ..., J
-        row_str = f"{row_label:>2} | " + separator.join(f"{int(cell):{col_width}}" for cell in row) + " |"
-
-        if predicted_T is not None:
-            row_p = predicted_T[i, :]
-            row_str += "    " + f"{row_label:>2} | " + separator.join(f"{int(cell):{col_width}}" for cell in row_p) + " |"
-
+    # Print board row by row
+    for i, row in enumerate(board):
+        row_str = f"{i+1:{col_width+1}} | " + separator.join(f"{int(cell):{col_width}}" for cell in row) + " |"
+        if predicted_board is not None:
+            row_p = predicted_board[i, :]
+            row_str += "    " + f"{i+1:{col_width+1}} | " + separator.join(f"{int(cell):{col_width}}" for cell in row_p) + " |"
         print(row_str)
 

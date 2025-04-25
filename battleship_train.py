@@ -82,7 +82,7 @@ def apply_random_mask(tgt: torch.Tensor, mask_token: int = 0, mask_prob: float =
 
     return masked_tgt, labels, loss_mask
 
-def generate_and_save_games(ngames:int=2000,board_height:int=10,board_width:int=10,ship_sizes:List[int]=SHIP_SIZES):
+def generate_games(ngames:int=2000,board_height:int=10,board_width:int=10,ship_sizes:List[int]=SHIP_SIZES):
     """Generate Games 
 
     Args:
@@ -92,7 +92,7 @@ def generate_and_save_games(ngames:int=2000,board_height:int=10,board_width:int=
         ship_sizes (List[int], optional): ship sizes to use. Defaults to SHIP_SIZES.
     """
     print("Generating Games to play")
-    src,tgt = generate_game_data(ngames,board_height,board_width,ship_sizes)
+    src,tgt = generate_game_data(ngames,board_height,board_width,SHIP_SIZES)
 
     os.makedirs('data',exist_ok=True)
     data = {'src':src,'tgt':tgt}
@@ -159,7 +159,7 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     # optimizer = optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
     
     if (not osp.exists("data/training_data.pickle")):
-        generate_and_save_games(ngames=20000,board_height=board_height,board_width=board_width,ship_sizes=SHIP_SIZES)
+        generate_games(ngames=20000,board_height=board_height,board_width=board_width,ship_sizes=SHIP_SIZES)
     
     data = pickle.load(open('data/training_data.pickle','rb'))
 
@@ -281,5 +281,5 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10):
     train_loop(src,tgt)
     
 if __name__ =="__main__":
-    # generate_and_save_games(10000,board_height,board_width,SHIP_SIZES)
+    # generate_games(10000,board_height,board_width,SHIP_SIZES)
     train(resume_training=True)
