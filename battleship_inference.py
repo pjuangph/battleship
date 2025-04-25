@@ -9,28 +9,27 @@ from battleship_train import load_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
-def bomb_index_to_human_readable(bomb_index:int,board_width:int)->str:
-    """Convert bomb index to human-readable format"""
-    row = bomb_index // board_width
-    col = int(bomb_index - row * board_width)
-    # convert col to letter
-    row_str = chr(col+65)
-    return f"{row_str}-{row+1}"
+def bomb_index_to_human_readable(bomb_index: int, board_width: int) -> str:
+    """Convert bomb index to human-readable format for transposed boards (e.g., 4 -> A-4)"""
+    row = bomb_index // board_width   # A=0, B=1, ...
+    col = bomb_index % board_width    # 4th column is 3 -> 4 when displayed
 
-def human_readable_to_bomb_index(human_readable:str, board_width:int) -> int:
-    """Convert human-readable format to bomb index"""
+    row_str = chr(row + 65)           # 0 -> A, 1 -> B, ...
+    return f"{row_str}-{col + 1}"     # Convert to 1-based index for human-readable
+
+
+def human_readable_to_bomb_index(human_readable: str, board_width: int) -> int:
+    """Convert human-readable format to bomb index for transposed boards (e.g., A-4 -> 4)"""
     
-    # Split the input string into row and column parts
+    # Split input like 'A-4'
     col_str, row_str = human_readable.split('-')
-    
-    # Convert the row letter (e.g. 'J') to a column index
-    col = ord(col_str.upper()) - 65
-    
-    # Convert the row number (e.g. '2') to a zero-based index
-    row = int(row_str) - 1
-    
-    # Calculate the bomb index from row and column
-    bomb_index = row * board_width + col
+
+    # In transposed mode: letter (A) is the row (0), number (4) is the column (3)
+    row = ord(col_str.upper()) - 65         # A -> 0
+    col = int(row_str) - 1                  # 4 -> 3
+
+    # Transposed logic: index = column + row * board_width
+    bomb_index = col + row * board_width
     return bomb_index
 
 def run_inference(model:torch.nn.Module,current_board:torch.Tensor)->Tuple[np.ndarray,np.ndarray]:
@@ -73,7 +72,7 @@ def ai_helper():
     board_height = 10
     board_width = 10
     model,_,_,_ = load_model()
-    percent_of_board_to_guess = 0.15
+    percent_of_board_to_guess = 0.10
 
     hits = 0 
     guesses = 0
