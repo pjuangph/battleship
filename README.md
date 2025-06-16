@@ -13,3 +13,8 @@ auto_game(n_games=1,train=False)  # This one runs a single game and prints out t
 # auto_game(n_games=1000, train=True)
 # ai_helper()
 ```
+
+# Tutorial
+
+https://colab.research.google.com/github/pjuangph/battleship/blob/main/battleship_tutorial.ipynb
+
