@@ -138,8 +138,6 @@ def train(resume_training:bool=False,save_every_n_epoch:int=10,epochs:int=100):
         resume_training (bool, optional): Resume training. Defaults to False.
         save_every_n_epoch (int, optional): Save every n epochs. Defaults to 10.
     """
-    epochs = 100
-
     src_vocab_size = 3
     tgt_vocab_size = 3 # 0, 1, 2
     d_model = 512
